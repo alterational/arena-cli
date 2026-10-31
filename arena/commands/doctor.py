@@ -35,12 +35,20 @@ def _check_chromium() -> tuple[bool, str, str]:
     return True, ", ".join(hits[:2]), ""
 
 
-def _check_network(base_url: str) -> tuple[bool, str, str]:
+def _check_network(base_url: str, proxy: str = "") -> tuple[bool, str, str]:
     try:
         req = urllib.request.Request(base_url, method="HEAD",
                                      headers={"user-agent": "arena-cli/doctor"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            return True, f"HTTP {resp.status}", ""
+        if proxy:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+            resp_ctx = opener.open(req, timeout=8)
+            note = "（经代理）"
+        else:
+            resp_ctx = urllib.request.urlopen(req, timeout=6)
+            note = ""
+        with resp_ctx as resp:
+            return True, f"HTTP {resp.status}{note}", ""
     except urllib.error.HTTPError as exc:
         return True, f"HTTP {exc.code}（能连通）", ""
     except Exception as exc:  # noqa: BLE001
@@ -81,10 +89,11 @@ def run_doctor(ctx, args) -> int:
         ("python", True, platform.python_version(), ""),
         ("playwright", *_check_playwright()),
         ("chromium", *_check_chromium()),
-        ("network", *_check_network(str(ctx.get("base_url")))),
+        ("network", *_check_network(str(ctx.get("base_url")), str(ctx.get("proxy") or ""))),
         ("config", *_check_config(ctx)),
         ("session", *_check_session(ctx)),
         ("profile", True, ctx.paths.profile, ""),
+        ("proxy", True, ctx.get("proxy") or "（未配置，直连）", ""),
         ("hermes skill", *_check_skill(ctx)),
     ]
     checks = [{"name": n, "ok": ok, "detail": d, "fix": h} for n, ok, d, h in rows]

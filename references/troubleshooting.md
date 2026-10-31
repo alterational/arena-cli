@@ -72,6 +72,40 @@
 注意 `open_session()` 非 verbose 时会把 `sys.stderr` 重定向进 StringIO 吞掉 Playwright 噪音，
 所以 Streamer 必须写 `sys.__stderr__`。轮询间隔在流式时降到 0.5s。
 
+## 工作区（Workspace 面板）
+
+`/agent/<chat_id>` 右侧那张卡片。实测**两种 UI 变体**：
+
+1. **经典列表**（常见）：行是 `div[role="button"][aria-label="<文件名> file"]`，层级靠
+   `style="padding-left: 8/24/40px"`（8 = 根，每级 +16），每行内嵌
+   `<a download aria-label="Download <文件名>" href="/api/chat/workspace/cas/user/<hash>">`。
+   折叠文件夹 `button[aria-label="Collapse|Expand <名字> folder"]`，**子项不在 DOM 里**，要点开才有。
+2. **文件树**（大工作区/新版本）：`aria-label="Open file"` + `Expand` + `Copy`，没有按文件的
+   `a[download]`，行名靠文本，路径也拿不准。
+
+所以 `arena/engine.py` 的策略是：先按 (1) 读，读不出行但面板统计里有文件时，**回落到
+页面右上角「下载工作区」的 zip**（`a[aria-label="Download workspace"]` →
+`/api/chat/<chat>/workspace/<uuid>/download`）：`workspace_zip_entries()` 列目录，
+`workspace_zip_read()` 取内容。`arena workspace list --json` 的 `data.source`
+会标 `dom` 还是 `archive`。
+
+坑：
+- 面板头部有时先渲染骨架（`animate-pulse` 占位），stats 早于行出现 → 要轮询等。
+- 统计文本可能是 `47B/128.0MB` + `2/10K files`，也可能是 `1.7K/10K files`（千位缩写）；
+  `workspace.parse_stats()` 用 `re.search` 而不是整行匹配。
+- 大工作区（29MB / 1.7K files）页面 `networkidle` 永远等不到 → 打开时用
+  `domcontentloaded` + `wait_loaded()`，不要 `wait_editor()`（看文件用不着输入框）。
+
+## 代理
+
+- 浏览器：`launch_persistent_context(proxy=...)`，地址支持 `http/https/socks5`，`user:pass@` 会拆成
+  `username/password`。**必须**同时加 `--proxy-bypass-list=<-loopback>`，否则 Chrome 默认给
+  localhost 开直连白名单（测试脚本跑 mock 时会以为代理没生效）。
+- `arena doctor` 的网络检查走 `urllib` + `ProxyHandler`，会标「（经代理）」。
+- 输出/日志里用 `mask_proxy()` 把密码打码。
+- 代理连不通 → 导航抛 `PWError` → 转成 `BROWSER_ERROR`（退出码 1），hint 提示先 `curl -x` 验证代理。
+- 测试：`tests/proxy_server.py` 是个几十行的正向代理，断言「请求真的从代理过」而不是只看配置有没有写进去。
+
 ## 自测
 
 ```bash

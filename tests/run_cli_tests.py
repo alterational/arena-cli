@@ -17,6 +17,8 @@ run_cli_tests.py —— 验证 `arena` CLI（对齐 lark-cli 的那套体系）
  12. 风险分级：覆盖登录态的 cookies import 需要 --yes
  13. --no-wait + jobs：list / status / result / logs / cancel
  14. schema：列表 / 单命令 / 未知命令
+ 15. workspace：list / show / download / --all / 覆盖门
+ 16. --proxy：真的走代理（flag / 配置文件）
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin" / "arena"
 sys.path.insert(0, str(ROOT / "tests"))
 import mock_server  # noqa: E402
+import proxy_server  # noqa: E402
 
 FAILED: list[str] = []
 HOME = Path(tempfile.mkdtemp(prefix="arena-cli-home-"))
@@ -52,7 +55,9 @@ def run(*args: str, stdin: str | None = None, timeout: int = 180):
                           input=stdin, timeout=timeout, env=env)
 
 
-def as_json(proc) -> dict:
+def as_json(proc=None, **kwargs) -> dict:
+    if proc is None:                    # as_json("--json", "status", timeout=300) 这种写法
+        proc = run(*kwargs.pop("args", ()), **kwargs)
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
@@ -279,6 +284,74 @@ def main() -> int:
     check("给出可用命令提示",
           "unknown_command" in r.stdout and "hint" in r.stdout, r.stdout[:200])
     check("人类可读 schema 输出", "风险" in run("schema", "cookies", "import").stdout)
+    d = as_json(run("--json", "schema", "workspace.download"))
+    check("schema 支持点分写法", str(d.get("data", {}).get("command", "")).endswith("download"), str(d)[:160])
+    r = run("schema", "workspace.bogus")
+    check("未知子命令 → 64 并列出子命令",
+          r.returncode == 64 and "download" in r.stderr, r.stderr[-140:])
+    check("--proxy 不再混进各命令参数表",
+          "--proxy" not in run("schema", "ask").stdout, run("schema", "ask").stdout[:200])
+
+    # ---------- 14. workspace ----------
+    print("\n[14] arena workspace")
+    d = as_json(run(*g, "--json", "workspace", "list"))
+    paths = [f.get("path") for f in d.get("data", {}).get("files", [])]
+    check("list 拿到文件", d.get("ok") is True and len(paths) >= 3, str(d)[:200])
+    check("路径带文件夹前缀", "uploads/note.txt" in paths, str(paths))
+    check("统计解析出文件数", (d.get("data", {}).get("stats", {}).get("files") or 0) >= 3,
+          str(d.get("data", {}).get("stats")))
+    r = run(*g, "workspace", "show", "uploads/note.txt")
+    check("show 打印内容", "hello from mock" in r.stdout, r.stdout[:120])
+    check("show stdout 只有内容", not r.stdout.lstrip().startswith("{"), r.stdout[:60])
+    d2 = as_json(run(*g, "--json", "workspace", "show", "hello.md"))
+    check("show 可用裸文件名", str(d2.get("data", {}).get("content", "")).startswith("# Mock"), str(d2)[:160])
+    r = run(*g, "workspace", "show", "image.png")
+    check("二进制文件拒绝打印", r.returncode == 1 and "download" in r.stderr, r.stderr[-160:])
+
+    dl = HOME / "dl"
+    target = dl / "note.txt"
+    r = run(*g, "workspace", "download", "uploads/note.txt", "--out", str(target))
+    check("download 落盘", target.exists() and "hello" in target.read_text(), r.stderr[-160:])
+    dj = as_json(run(*g, "--json", "workspace", "download", "hello.md", "--out", str(dl / "hello.md")))
+    check("download 返回 sha256/大小", dj.get("data", {}).get("sha256") and dj["data"]["size"] > 0,
+          str(dj)[:200])
+    r = run(*g, "workspace", "download", "hello.md", "--out", str(target))
+    check("覆盖本地文件需要 --yes", r.returncode == 1 and "yes" in r.stderr.lower(), r.stderr[-160:])
+    check("--yes 才允许覆盖",
+          run(*g, "workspace", "download", "hello.md", "--out", str(target), "--yes").returncode == 0)
+    zip_out = dl / "ws.zip"
+    r = run(*g, "workspace", "download", "--all", "--out", str(zip_out))
+    import zipfile
+    ok_zip = zip_out.exists() and zipfile.ZipFile(zip_out).namelist() != []
+    check("--all 打包下载", r.returncode == 0 and ok_zip, r.stderr[-200:])
+    check("不存在的文件报错", run(*g, "workspace", "show", "nope.txt").returncode == 1)
+
+    # ---------- 15. --proxy ----------
+    print("\n[15] --proxy（请求真的从代理走）")
+    psrv = proxy_server.serve(0)
+    pport = psrv.server_address[1]
+    threading.Thread(target=psrv.serve_forever, daemon=True).start()
+    proxy_url = f"http://127.0.0.1:{pport}"
+    d = as_json(run(*g, "--json", "--proxy", proxy_url, "workspace", "list"), timeout=180)
+    check("经代理仍能跑通", d.get("ok") is True, str(d)[:200])
+    reqs = list(psrv.state["requests"])
+    check("代理确实收到了请求", len(reqs) > 0, str(psrv.state["errors"])[:200])
+    check("代理里有目标站点请求", any("127.0.0.1" in u for u in reqs), str(reqs[:3])[:200])
+    st = as_json(run(*g, "--json", "--proxy", proxy_url, "status"))
+    check("status 里显示代理", f"127.0.0.1:{pport}" in str(st.get("data", {}).get("proxy")), str(st)[:200])
+    run(*g, "config", "set", "proxy", proxy_url)
+    before = len(psrv.state["requests"])
+    d = as_json(run(*g, "--json", "workspace", "list"), timeout=180)
+    check("配置文件里的 proxy 也生效",
+          d.get("ok") is True and len(psrv.state["requests"]) > before, str(d)[:160])
+    run(*g, "config", "unset", "proxy")
+    r = run(*g, "--json", "--proxy", "http://127.0.0.1:9", "workspace", "list", timeout=180)
+    check("坏代理明确失败（不装成功）",
+          r.returncode != 0 or '"ok": false' in r.stdout, r.stdout[-200:])
+    check("坏代理的错误信封可读",
+          "proxy" in (r.stdout + r.stderr).lower() or "browser_error" in (r.stdout + r.stderr).lower(),
+          (r.stdout + r.stderr)[-200:])
+    psrv.shutdown()
 
     # ---------- 13. 错误信封 ----------
     print("\n[13] 统一错误信封")

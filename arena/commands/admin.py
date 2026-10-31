@@ -32,10 +32,13 @@ def run_status(ctx, args) -> int:
     session = _session_summary(ctx.paths.state_file, ctx.engine_cfg)
     recent = jobs.list_jobs(ctx.paths.home, limit=3)
 
+    from ..engine import mask_proxy
+
     data = {
         "version": __version__,
         "profile": ctx.paths.profile,
         "base_url": ctx.get("base_url"),
+        "proxy": mask_proxy(str(ctx.get("proxy") or "")) or None,
         "state_file": str(ctx.paths.state_file),
         "session": session,
         "config_file": str(ctx.paths.config_file),
@@ -52,6 +55,7 @@ def run_status(ctx, args) -> int:
             ("版本", data["version"]),
             ("profile", data["profile"]),
             ("目标站点", data["base_url"]),
+            ("代理", data["proxy"] or "直连"),
             ("会话文件", f"{data['state_file']}"
                         + ("" if session["exists"] else "（不存在）")),
             ("cookies", session.get("cookies")),

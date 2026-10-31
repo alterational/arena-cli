@@ -46,6 +46,29 @@ PAGE = """<!DOCTYPE html>
   <a href="/agent/chat-cccccccc-0003">长文本与特殊字符</a>
   <a href="/history/search">Search</a>
 </nav>
+<div id="ws" class="max-h-[400px] border-border-medium bg-surface-primary flex flex-col overflow-hidden rounded-md border">
+  <div class="flex items-center justify-between">
+    <span>Workspace</span>
+    <a href="/api/chat/chat-aaaaaaaa-0001/workspace/wsid/download" download="" aria-label="Download workspace">&#11015;</a>
+  </div>
+  <div><span>3/128.0MB</span> <span>3/10K files</span></div>
+  <div id="wstree">
+    <button type="button" aria-label="Collapse uploads folder" style="padding-left: 8px;">uploads</button>
+    <div role="button" tabindex="0" aria-label="note.txt file" style="padding-left: 24px;">
+      <span>note.txt</span>
+      <a href="/api/chat/workspace/cas/user/note" download="note.txt" aria-label="Download note.txt">&#11015;</a>
+    </div>
+    <div role="button" tabindex="0" aria-label="hello.md file" style="padding-left: 8px;">
+      <span>hello.md</span>
+      <a href="/api/chat/workspace/cas/user/readme" download="hello.md" aria-label="Download hello.md">&#11015;</a>
+    </div>
+    <div role="button" tabindex="0" aria-label="image.png file" style="padding-left: 8px;">
+      <span>image.png</span>
+      <a href="/api/chat/workspace/cas/user/img" download="image.png" aria-label="Download image.png">&#11015;</a>
+    </div>
+  </div>
+</div>
+
 <div id="wrap">
   <h3>Mock Arena — Agent Mode <span id="acct"></span></h3>
   <div id="msgs"></div>
@@ -168,6 +191,24 @@ ed.addEventListener('keydown', e => {{
 
 HTML = PAGE.replace("{{", "{").replace("}}", "}")
 
+# 假的工作区文件：cas key -> (zip 内路径, 内容, content-type)
+WORKSPACE_FILES: dict[str, tuple[str, bytes, str]] = {
+    "note": ("uploads/note.txt", "hello from mock\n第二行\n".encode(), "text/plain; charset=utf-8"),
+    "readme": ("hello.md", "# Mock workspace\n\n- item\n".encode(), "text/markdown; charset=utf-8"),
+    "img": ("image.png", bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 12, "image/png"),
+}
+
+
+def _workspace_zip() -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, data, _ctype in WORKSPACE_FILES.values():
+            zf.writestr(path, data)
+    return buf.getvalue()
+
 
 class Handler(BaseHTTPRequestHandler):
     state = {"terms_ok": False, "logged_in": False, "emails": [], "rate_limit": False}
@@ -183,10 +224,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _raw(self, data: bytes, ctype: str, extra: dict[str, str] | None = None) -> None:
+        self.send_response(200)
+        self.send_header("content-type", ctype)
+        self.send_header("content-length", str(len(data)))
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         cls = type(self)
         cookie = self.headers.get("cookie") or ""
         cls.state["logged_in"] = "mock_session=1" in cookie
+        # 工作区文件：/api/chat/workspace/cas/user/<key>
+        if self.path.startswith("/api/chat/workspace/cas/user/"):
+            key = self.path.rsplit("/", 1)[-1].split("?")[0]
+            item = WORKSPACE_FILES.get(key)
+            if not item:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self._raw(item[1], item[2])
+            return
+        # 整个工作区打包：/api/chat/<chat>/workspace/<id>/download
+        if "/workspace/" in self.path and self.path.endswith("/download"):
+            self._raw(_workspace_zip(), "application/zip",
+                      {"content-disposition": 'attachment; filename="workspace.zip"'})
+            return
         # /agent?ratelimit=1 -> 之后每次发送都返回 429（复刻真实站点的限流）
         if "ratelimit=1" in self.path:
             cls.state["rate_limit"] = True

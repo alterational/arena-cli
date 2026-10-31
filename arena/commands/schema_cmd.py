@@ -6,12 +6,20 @@ from .. import spec
 from ..errors import ArenaError
 
 
+def _expand_path(path: list[str]) -> list[str]:
+    """`schema workspace.download` -> ["workspace", "download"]（点分写法也认）。"""
+    out: list[str] = []
+    for raw in path:
+        out.extend(part for part in str(raw).split(".") if part)
+    return out
+
+
 def run(ctx, args) -> int:
     # 延迟导入，避免和 cli 循环依赖
     from ..cli import RISK, build_parser
 
     parser = build_parser()
-    path = list(getattr(args, "path", []) or [])
+    path = _expand_path(list(getattr(args, "path", []) or []))
 
     if not path:                                  # 没给路径：列全部命令
         commands = []
@@ -33,6 +41,12 @@ def run(ctx, args) -> int:
     if not walked:
         raise ArenaError("validation", "unknown_command", f"未知命令：{' '.join(path)}",
                          "可用命令：" + ", ".join(spec.available_commands(parser)), exit_code=USAGE_ERR)
+    if len(walked) < len(path):                  # 前几段对、后面那段不存在
+        subs = spec.available_commands(target) if target is not None else []
+        raise ArenaError(
+            "validation", "unknown_command",
+            f"未知子命令：{' '.join(path[len(walked):])}（在 {walked[-1]} 下）",
+            "可用子命令：" + (", ".join(subs) or "（无）"), exit_code=USAGE_ERR)
     info = spec.describe(parser, path, RISK)
 
     def human() -> None:

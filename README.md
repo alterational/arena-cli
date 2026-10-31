@@ -56,6 +56,7 @@ arena chat last               最近一条会话的链接
 arena chat open <id|序号|last> 打开会话（--browser 用系统浏览器）
 arena config list|get|set|unset|path
 arena profile list|show|create|use|delete    多套登录态切换
+arena workspace list|show|download         会话工作区：列文件 / 看内容 / 下载（--all 打包）
 arena jobs list|status|result|logs|cancel    后台任务（ask --no-wait 产生的）
 arena schema [命令…]          命令自省：参数 / 类型 / 默认值 / 风险等级
 arena doctor                  环境体检（依赖/浏览器/网络/会话/技能安装）
@@ -64,7 +65,40 @@ arena version
 
 常用全局参数：`--json` · `--jq '<表达式>'` · `--dry-run` · `--yes` · `--no-wait` · `-q/--quiet` ·
 `-v/--verbose` · `--no-color` · `--profile <名>` · `--config <文件>` · `--base-url` · `--timeout <秒>` ·
-`--max-chars <N>` · `--cookies <文件>` · `--headed`
+`--max-chars <N>` · `--cookies <文件>` · `--headed` · `--proxy <代理>`
+
+### 工作区（Agent 产出的文件）
+
+会话页右侧那张 Workspace 卡里的东西，直接用命令行拿：
+
+```bash
+arena workspace list                        # 列文件（自动展开文件夹，默认最近会话）
+arena workspace list --chat last --json     # 结构化：{files:[{path,size,href}], stats:{used,quota,files}}
+arena workspace show uploads/note.txt       # 打印内容（stdout 只有内容）
+arena workspace download demo.txt --out ./  # 下载（--out 可以是文件或已存在的目录）
+arena workspace download --all --out ws.zip # 整个工作区打包
+```
+
+路径写法：`uploads/note.txt`（完整）、`note.txt`（唯一时可直接写文件名）、`*/note.txt`（通配）。
+覆盖已存在的本地文件需要 `--yes`；二进制文件 `show` 会拒绝并提示改用 `download`。
+
+实现上有两条路：先读 Workspace 面板 DOM（快）；面板是另一种文件树 UI 认不出行时，
+自动改用页面右上角「下载工作区」的 zip 来列目录/取内容（`data.source = "archive"` 会标出来）。
+
+### 代理
+
+```bash
+arena --proxy http://127.0.0.1:7890 ask "…"          # 单次
+arena config set proxy http://127.0.0.1:7890          # 持久（写进 config.json）
+arena config set proxy socks5://127.0.0.1:1080        # socks5 也支持
+arena config set proxy http://user:pass@10.0.0.1:8080 # 带认证（输出里密码会打码）
+export ARENA_PROXY=http://127.0.0.1:7890              # 环境变量（HTTPS_PROXY/ALL_PROXY 也认）
+```
+
+优先级：`--proxy` > 配置文件 > `ARENA_PROXY` > `HTTPS_PROXY`/`ALL_PROXY` > 直连。
+代理同时作用于**浏览器**（Playwright 透传，含 `--proxy-bypass-list=<-loopback>`，
+否则 Chrome 会默认给 localhost 开白名单）和 `arena doctor` 的网络检查。
+代理连不通会明确报 `BROWSER_ERROR`（不装成功）。
 
 典型用法：
 
@@ -247,11 +281,12 @@ arena-agent-skill/
 │   ├── ui.py                 #   颜色/表格/JSON（中文对齐）
 │   ├── engine.py             #   浏览器引擎（原 arena_agent.py）
 │   ├── errors.py             #   错误码 → {type,subtype,message,hint}
+│   ├── workspace.py          #   工作区：路径拼装/查找/文本判定/统计解析
 │   ├── jq.py                 #   --jq 用的极简 jq（.a.b / [0] / [] / |）
 │   ├── jobs.py               #   后台任务（--no-wait 的落地实现）
 │   ├── spec.py               #   从 argparse 反射出 schema（agent 自省）
 │   └── commands/             #   ask/auth/cookies/chat/config/profile/
-│                             #   jobs/schema/status/doctor
+│                             #   jobs/schema/status/doctor/workspace
 ├── scripts/
 │   ├── arena_ask.py          # Hermes 技能入口：一句话进、回答正文出（契约不变）
 │   ├── arena_agent.py        # 兼容旧入口（转发到引擎）

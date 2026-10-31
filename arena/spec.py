@@ -14,7 +14,7 @@ TYPE_NAMES = {None: "string", str: "string", int: "int", float: "float", bool: "
 GLOBAL_FLAGS = {
     "-h", "--help", "--json", "--format", "--jq", "-q", "--quiet", "-v", "--verbose",
     "--no-color", "--dry-run", "--yes", "--no-wait", "--profile", "--config",
-    "--base-url", "--timeout", "--stable", "--max-chars", "--cookies", "--headed",
+    "--base-url", "--timeout", "--stable", "--max-chars", "--cookies", "--headed", "--proxy",
     "--state-file", "--profile-dir", "--version",
 }
 

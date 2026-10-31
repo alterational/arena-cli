@@ -32,6 +32,9 @@ RISK: dict[str, str] = {
     "cookies.import": "write",
     "cookies.export": "write",
     "cookies.show": "read",
+    "workspace.list": "read",
+    "workspace.show": "read",
+    "workspace.download": "write",
     "chat.list": "read",
     "chat.last": "read",
     "chat.open": "read",
@@ -65,6 +68,10 @@ EXAMPLES = """\
   arena schema ask                                  # 看 ask 的参数/风险/默认值
   arena cookies import ~/uploads/arena.ai_cookies.txt --yes
   arena config set timeout 1800
+  arena workspace list                              # Agent 在这次会话里产出的文件
+  arena workspace show demo.txt                     # 直接看内容
+  arena workspace download demo.txt --out ./demo.txt
+  arena --proxy http://127.0.0.1:7890 ask "..."     # 所有请求走代理
 """
 
 QUICKSTART = """\
@@ -76,6 +83,8 @@ AGENT QUICKSTART（你是 agent？从这里开始）:
     提问拿结果:     arena ask "<用户原话>"        # 退出码 0 = 成功，stdout 就是回答
     长任务别阻塞:   arena ask --no-wait "<…>"  →  arena jobs result last
     结构化输出:     --json（{ok, identity, data, meta}），--jq '.data.answer' 过滤
+    取产出文件:     arena workspace list → arena workspace download <path> --out .
+    内网/翻墙:       --proxy http://127.0.0.1:7890（或 arena config set proxy …）
     只预览不执行:   --dry-run
     风险: 每条命令有 read | write | high-risk-write；high-risk-write 必须加 --yes（先问用户）
     失败处理: 看 error.subtype 与 error.hint（LOGIN_REQUIRED → arena cookies import）
@@ -112,6 +121,8 @@ def _add_global(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     g.add_argument("--cookies", default=S,
                    help="先导入这份 cookies 文件（Netscape .txt / JSON），再执行命令")
     g.add_argument("--headed", action="store_true", default=S, help="显示浏览器窗口")
+    g.add_argument("--proxy", default=S,
+                   help="所有请求走这个代理：http://host:port / socks5://host:port / http://user:pass@host:port")
     g.add_argument("--state-file", default=S, help=argparse.SUPPRESS)
     g.add_argument("--profile-dir", default=S, help=argparse.SUPPRESS)
     return p
@@ -193,6 +204,26 @@ def build_parser() -> Parser:
     co.add_argument("ref", help="chat_id / 序号 / last / 完整 URL")
     co.add_argument("--browser", action="store_true", help="同时用系统浏览器打开")
 
+    # ---- workspace ----
+    wsf = _sub(sub, "workspace", "会话工作区：列文件 / 看内容 / 下载",
+               "查看 Agent 在那个会话里产出的文件（含上传件）。默认操作最近一个会话，用 --chat 指定。",
+               common)
+    wssub = wsf.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
+    wl = _sub(wssub, "workspace.list", "列出工作区文件（自动展开文件夹）", "", common)
+    wl.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
+    wl.add_argument("--no-expand", action="store_true", help="只列顶层，不展开文件夹")
+    wsl = _sub(wssub, "workspace.show", "打印某个文件的内容（文本）",
+               "stdout 只有文件内容，适合直接转发。", common)
+    wsl.add_argument("path", help="文件路径（workspace list 里那一列，可只写文件名）")
+    wsl.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
+    wd = _sub(wssub, "workspace.download", "下载工作区文件到本地",
+              "覆盖同名本地文件属高危操作，需要 --yes。", common)
+    wd.add_argument("path", nargs="?", default="", help="文件路径（--all 时可省略）")
+    wd.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
+    wd.add_argument("--out", help="保存到哪里（文件路径或已存在的目录；默认当前目录）")
+    wd.add_argument("--all", action="store_true", help="把整个工作区打包成 zip 下载")
+    wd.add_argument("--force", action="store_true", help="（兼容旧脚本）等同 --yes")
+
     # ---- config ----
     cf = _sub(sub, "config", "读写配置", "", common)
     cfsub = cf.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
@@ -243,7 +274,8 @@ def build_parser() -> Parser:
 
 # --------------------------------------------------------------------------- 分发
 def _dispatch(args, ctx) -> int:
-    from .commands import admin, ask as ask_cmd, auth, chat, config_cmd, cookies, jobs_cmd, profile, schema_cmd
+    from .commands import (admin, ask as ask_cmd, auth, chat, config_cmd, cookies, jobs_cmd,
+                           profile, schema_cmd, workspace as workspace_cmd)
 
     key = (args.cmd, getattr(args, "sub", None))
     table: dict[tuple[str, Optional[str]], Callable[[Any, Any], int]] = {
@@ -254,6 +286,9 @@ def _dispatch(args, ctx) -> int:
         ("cookies", "import"): cookies.run_import,
         ("cookies", "export"): cookies.run_export,
         ("cookies", "show"): cookies.run_show,
+        ("workspace", "list"): workspace_cmd.run_list,
+        ("workspace", "show"): workspace_cmd.run_show,
+        ("workspace", "download"): workspace_cmd.run_download,
         ("chat", "list"): chat.run_list,
         ("chat", "last"): chat.run_last,
         ("chat", "open"): chat.run_open,

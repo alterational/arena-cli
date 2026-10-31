@@ -69,6 +69,7 @@ DEFAULT_DIR = HOME / ".arena-agent"
 # --------------------------------------------------------------------------------------
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": "https://arena.ai",
+    "proxy": "",                 # http://host:port / socks5://host:port / 带 user:pass 也行
     "agent_path": "/agent",
     # 输入框（composer）。arena.ai 现在是 Tiptap/ProseMirror 编辑器
     "editor_selectors": [
@@ -120,6 +121,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "All files that are created or uploaded in this session",
         "Stop response",
     ],
+    # 会话工作区（Workspace 面板）：默认靠 DOM 特征自动定位，页面改版时可在这里覆盖
+    "workspace_panel_selectors": [],
+    "workspace_expand_clicks": 60,       # 最多点开多少个折叠文件夹（防止上千文件时卡死）
     # 会话结束后 Arena 会把输入框替换成「Was this task successful?」反馈卡（Esc / × 可关），
     # 关掉之后 composer 才会回来 —— 多轮追问必须先把这张卡关掉
     "feedback_text": "Was this task successful?",
@@ -213,6 +217,45 @@ def load_config(explicit: Optional[str], overrides: dict[str, Any]) -> dict[str,
 def log(msg: str) -> None:
     sys.stderr.write(f"[arena] {msg}\n")
     sys.stderr.flush()
+
+
+def parse_proxy(url: Optional[str]) -> Optional[dict[str, Any]]:
+    """`http://user:pass@host:port` / `socks5://host:port` -> Playwright proxy 参数。"""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if "://" not in url:
+        url = "http://" + url
+    from urllib.parse import unquote, urlparse
+
+    u = urlparse(url)
+    if not u.hostname:
+        raise SkillError("BAD_INPUT", f"看不懂的代理地址：{url}")
+    scheme = (u.scheme or "http").lower()
+    if scheme not in ("http", "https", "socks5", "socks4"):
+        raise SkillError("BAD_INPUT", f"不支持的代理协议：{scheme}（支持 http/https/socks5）")
+    port = u.port or (1080 if scheme.startswith("socks") else 8080)
+    proxy: dict[str, Any] = {"server": f"{scheme}://{u.hostname}:{port}"}
+    if u.username:
+        proxy["username"] = unquote(u.username)
+    if u.password:
+        proxy["password"] = unquote(u.password)
+    return proxy
+
+
+def mask_proxy(url: Optional[str]) -> str:
+    """日志/输出里把代理密码打码。"""
+    url = (url or "").strip()
+    if not url or "@" not in url:
+        return url
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        u = urlsplit(url if "://" in url else "http://" + url)
+        netloc = f"{u.username}:***@{u.hostname}" + (f":{u.port}" if u.port else "")
+        return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
+    except ValueError:
+        return url
 
 
 def jitter(a: float = 0.05, b: float = 0.2) -> None:
@@ -312,9 +355,15 @@ class Session:
             "--no-first-run",
             "--no-default-browser-check",
         ]
+        proxy = parse_proxy(self.cfg.get("proxy"))
+        if proxy:
+            log(f"走代理：{mask_proxy(str(self.cfg.get('proxy')))}")
+            # Chrome 默认给 localhost 开代理白名单（bypass），显式关掉才真的走代理
+            launch_args.append("--proxy-bypass-list=<-loopback>")
         self.ctx = self._pw.chromium.launch_persistent_context(
             user_data_dir=str(self.profile_dir),
             headless=not self.headed,
+            proxy=proxy,
             viewport=self.cfg["viewport"],
             locale=self.cfg["locale"],
             channel=self.channel,          # 例如 "chrome"：用本机真实 Chrome，过校验成功率更高
@@ -394,6 +443,8 @@ class Session:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         except PWTimeout:
             log("页面加载超时，继续尝试（SPA 可能已可用）")
+        except PWError as exc:
+            raise SkillError("BROWSER_ERROR", f"打不开 {url}：{str(exc).splitlines()[0]}") from None
         self.wait_editor()
         self.handle_terms()
         self.settle()
@@ -453,8 +504,11 @@ class Session:
         self.page.wait_for_timeout(3000)
         return True
 
-    def open_chat(self, chat: str) -> Page:
-        """打开指定会话（支持完整 URL、/agent/<id> 或裸 id）。"""
+    def open_chat(self, chat: str, require_editor: bool = True) -> Page:
+        """打开指定会话（支持完整 URL、/agent/<id> 或裸 id）。
+
+        require_editor=False：只要页面能访问就行（看工作区文件用不着输入框）。
+        """
         assert self.page is not None
         chat = chat.strip()
         if chat.startswith("http"):
@@ -470,9 +524,28 @@ class Session:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         except PWTimeout:
             log("页面加载超时，继续尝试")
-        self.wait_editor()
+        except PWError as exc:
+            raise SkillError("BROWSER_ERROR", f"打不开 {url}：{str(exc).splitlines()[0]}") from None
+        if require_editor:
+            self.wait_editor()
+        else:
+            self.wait_loaded()
         self.handle_terms()
         return self.page
+
+    def wait_loaded(self, timeout_s: float = 30) -> None:
+        """不要求 composer 时用：等页面主体渲染出来（期间处理人机校验）。"""
+        assert self.page is not None
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                if len(body_text(self.page)) > 40:
+                    return
+            except PWError:
+                pass
+            if self.try_pass_challenge():
+                continue
+            self.page.wait_for_timeout(700)
 
     def wait_editor(self, timeout_s: float = 60) -> Locator:
         """等输入框出现；期间会自动处理条款弹窗和人机校验页。"""
@@ -563,6 +636,194 @@ class Session:
             pass
         txt = body_text(page)
         return any(t in txt for t in ("Continue with Google", "Continue with email"))
+
+    # ---- 会话工作区（Workspace 面板） ---------------------------------------
+    def open_workspace(self, chat: Optional[str] = None) -> Page:
+        """打开会话页（或落地页）并等 Workspace 面板出现。"""
+        assert self.page is not None
+        if chat:
+            self.open_chat(chat, require_editor=False)
+        else:
+            self.open_agent()
+        self.settle()
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            if self.workspace_raw().get("found"):
+                return self.page
+            self.dismiss_feedback()
+            self.page.wait_for_timeout(600)
+        raise SkillError(
+            "UI_CHANGED",
+            "没找到 Workspace 面板（右侧文件列表）。可能页面改版，或这个会话没有工作区；"
+            "可以先 arena chat open <chat> 看看，或 --headed 观察",
+        )
+
+    def workspace_raw(self) -> dict[str, Any]:
+        assert self.page is not None
+        try:
+            return self.page.evaluate(WS_PANEL_JS, self.cfg.get("workspace_panel_selectors") or [])
+        except PWError:
+            return {"found": False, "stats": [], "entries": [], "expandable": 0}
+
+    def expand_workspace(self, limit: Optional[int] = None) -> int:
+        """把折叠的文件夹逐个点开（子项不在 DOM 里，不展开就列不出来）。"""
+        assert self.page is not None
+        limit = int(limit if limit is not None else self.cfg.get("workspace_expand_clicks", 60))
+        clicks = 0
+        while clicks < limit:
+            try:
+                if not self.page.evaluate(WS_EXPAND_JS, self.cfg.get("workspace_panel_selectors") or []):
+                    break
+            except PWError:
+                break
+            clicks += 1
+            self.page.wait_for_timeout(250)
+        if clicks:
+            log(f"展开了 {clicks} 个文件夹")
+        return clicks
+
+    def workspace_entries(self, chat: Optional[str] = None,
+                          expand: bool = True) -> dict[str, Any]:
+        """会话工作区清单：{stats, entries(带 path 的), archive_href, chat}。"""
+        from .workspace import build_paths, parse_stats
+
+        self.open_workspace(chat)
+        if expand:
+            self.expand_workspace()
+        raw = self.workspace_raw()
+        entries = build_paths(raw.get("entries") or [])
+        files = [e for e in entries if e.get("kind") == "file"]
+        stats = parse_stats(raw.get("stats") or [])
+        source = "dom"
+        # 面板里明明有文件、却读不出行 → 换一个 UI 变体：直接从「下载工作区」的 zip 里列
+        if not files and (stats.get("files") or 0) > 0:
+            try:
+                zip_entries = self.workspace_zip_entries(None)
+            except SkillError:
+                zip_entries = []
+            if zip_entries:
+                entries, files, source = zip_entries, zip_entries, "archive"
+        # 顺手补一个 size 字段（zip 里有；DOM 里没有）
+        sizes = {e["path"]: e.get("size") for e in entries if e.get("size") is not None}
+        for f in files:
+            f.setdefault("size", sizes.get(f["path"]))
+        return {
+            "chat_id": extract_chat_id(self.page.url if self.page else ""),
+            "stats": stats,
+            "entries": entries,
+            "count": len(files),
+            "archive_href": raw.get("archive_href") or self._archive_href(),
+            "source": source,
+            "truncated": bool(raw.get("expandable")),
+        }
+
+    def workspace_bytes(self, href: str) -> tuple[bytes, dict[str, str]]:
+        """用浏览器上下文（带着登录态）把文件取回来。"""
+        assert self.ctx is not None
+        url = href if href.startswith("http") else self.cfg["base_url"].rstrip("/") + href
+        resp = self.ctx.request.get(url, timeout=120_000)
+        if not resp.ok:
+            raise SkillError(
+                "SEND_FAILED" if resp.status >= 500 else "NOT_FOUND",
+                f"下载失败：HTTP {resp.status}（{url}）",
+            )
+        headers = {k.lower(): v for k, v in resp.headers.items()}
+        return resp.body(), headers
+
+    def workspace_file(self, chat: Optional[str], path: str) -> dict[str, Any]:
+        """按路径取一个文件：先在（展开后的）清单里定位，再下载。"""
+        from .workspace import ambiguous_candidates, find_file, normalize_ref
+
+        listing = self.workspace_entries(chat, expand=True)
+        entry = find_file(listing["entries"], path)
+        if entry is not None and not entry.get("href") and listing.get("source") == "archive":
+            return self.workspace_zip_read(entry["path"], chat)
+        if entry is None:
+            cands = ambiguous_candidates(listing["entries"], path)
+            if len(cands) > 1:
+                raise SkillError(
+                    "BAD_INPUT",
+                    "有多份同名文件，请写完整路径：" + "、".join(cands[:8]),
+                )
+            raise SkillError(
+                "NOT_FOUND",
+                f"工作区里没有 {normalize_ref(path)}；arena workspace list 看看有哪些",
+            )
+        if not entry.get("href"):
+            return self.workspace_zip_read(entry["path"], chat)
+        data, headers = self.workspace_bytes(entry["href"])
+        return {
+            "chat_id": listing["chat_id"],
+            "path": entry["path"],
+            "name": entry["name"],
+            "bytes": data,
+            "content_type": headers.get("content-type", ""),
+            "size": len(data),
+        }
+
+    def _archive_href(self) -> Optional[str]:
+        if not getattr(self, "_ws_archive_href", None):
+            self._ws_archive_href = self.workspace_raw().get("archive_href")
+        return self._ws_archive_href
+
+    def workspace_archive(self, chat: Optional[str] = None) -> dict[str, Any]:
+        """整个工作区打包（就是页面右上角那个「下载工作区」给的 zip）。"""
+        if getattr(self, "_ws_zip", None) is not None:
+            return self._ws_zip
+        self.open_workspace(chat)
+        href = self._archive_href()
+        if not href:
+            raise SkillError("UI_CHANGED", "没找到「下载工作区」的链接（页面可能改版）")
+        data, headers = self.workspace_bytes(href)
+        got = {"chat_id": extract_chat_id(self.page.url if self.page else ""),
+               "bytes": data, "content_type": headers.get("content-type", ""),
+               "size": len(data)}
+        self._ws_zip = got
+        return got
+
+    def workspace_zip_entries(self, chat: Optional[str] = None) -> list[dict[str, Any]]:
+        """把工作区 zip 拆成条目（页面 DOM 认不出来时的兜底：路径/大小都最准）。"""
+        import io
+        import zipfile
+
+        got = self.workspace_archive(chat)
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(got["bytes"]))
+        except zipfile.BadZipFile:
+            raise SkillError("UI_CHANGED",
+                             "「下载工作区」返回的不是 zip（可能被拦截或页面改版）") from None
+        entries: list[dict[str, Any]] = []
+        for info in zf.infolist():
+            name = info.filename.rstrip("/")
+            if not name or info.is_dir():
+                continue
+            entries.append({"kind": "file", "name": name.rsplit("/", 1)[-1],
+                            "depth": name.count("/"), "path": name,
+                            "size": info.file_size, "href": None})
+        return entries
+
+    def workspace_zip_read(self, path: str, chat: Optional[str] = None) -> dict[str, Any]:
+        import io
+        import zipfile
+
+        from .workspace import normalize_ref
+
+        ref = normalize_ref(path)
+        got = self.workspace_archive(chat)
+        zf = zipfile.ZipFile(io.BytesIO(got["bytes"]))
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        hit = next((n for n in names if n == ref), None)
+        if hit is None:
+            cands = [n for n in names if n.endswith("/" + ref) or n.rsplit("/", 1)[-1] == ref]
+            if len(cands) == 1:
+                hit = cands[0]
+            elif len(cands) > 1:
+                raise SkillError("BAD_INPUT", "有多份同名文件，请写完整路径：" + "、".join(cands[:8]))
+        if hit is None:
+            raise SkillError("NOT_FOUND", f"工作区（zip 里）没有 {ref}")
+        data = zf.read(hit)
+        return {"chat_id": got["chat_id"], "path": hit, "name": hit.rsplit("/", 1)[-1],
+                "bytes": data, "content_type": "", "size": len(data)}
 
     def list_chats(self, limit: int = 20) -> list[dict[str, Any]]:
         """从侧边栏读最近会话（标题 + 链接）。"""
@@ -890,6 +1151,115 @@ class Session:
 def extract_chat_id(url: str) -> Optional[str]:
     m = re.search(r"/agent/(?:c/)?([0-9a-zA-Z-]{8,})", url)
     return m.group(1) if m else None
+
+
+# --------------------------------------------------------------------------------------
+# Workspace 面板：定位 + 读条目 + 逐个展开文件夹（全部在页面内跑，不猜 API）
+# --------------------------------------------------------------------------------------
+WS_PANEL_JS = r"""
+(customSelectors) => {
+  const q = (root, sel) => Array.from(root.querySelectorAll(sel));
+  let panel = null;
+  for (const sel of (customSelectors || [])) {
+    const el = document.querySelector(sel);
+    if (el) { panel = el; break; }
+  }
+  if (!panel) {
+    // 从「下载工作区」链接往上找：先找**同时包含文件行**的容器（真正的面板根），
+    // 找不到（空工作区）再退化成只认 Workspace + files 文案的容器。
+    const anchor = document.querySelector('a[aria-label="Download workspace"]');
+    // 注意：不要把 a[aria-label^="Download "] 算进来 —— 头部那个「Download workspace」
+    // 也在 header 里，会把 header 误判成面板根。
+    const hasRows = (n) => !!(n.querySelector && n.querySelector(
+      '[aria-label$=" file"], [aria-label$=" folder"]'));
+    for (const needRows of [true, false]) {
+      let node = anchor;
+      while (node && node !== document.body) {
+        const t = node.innerText || '';
+        if (/Workspace/.test(t) && /\bfiles\b/i.test(t) && (!needRows || hasRows(node))) {
+          panel = node;
+          break;
+        }
+        node = node.parentElement;
+      }
+      if (panel) break;
+    }
+  }
+  if (!panel) {
+    // 兜底：找 "Workspace" 标题所在的卡片
+    const title = q(document, 'span,div,div[class]').find(e => (e.textContent || '').trim() === 'Workspace');
+    if (title) {
+      let node = title;
+      while (node && node !== document.body) {
+        if ((node.innerText || '').includes('files')) { panel = node; break; }
+        node = node.parentElement;
+      }
+    }
+  }
+  if (!panel) return {found: false, stats: [], entries: [], expandable: 0};
+
+  const stats = (panel.innerText || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 6);
+  const entries = [];
+  for (const el of q(panel, 'div[role="button"][aria-label$=" file"], button[aria-label$=" folder"], div[role="button"][aria-label$=" folder"]')) {
+    const label = el.getAttribute('aria-label') || '';
+    const m = (el.getAttribute('style') || '').match(/padding-left:\s*(\d+)px/);
+    const depth = m ? Math.max(0, Math.round((parseInt(m[1], 10) - 8) / 16)) : 0;
+    const folder = label.match(/^(?:Collapse|Expand) (.*) folder$/);
+    if (folder) {
+      entries.push({kind: 'folder', name: folder[1], depth,
+                    expanded: label.startsWith('Collapse')});
+      continue;
+    }
+    const file = label.match(/^(.*) file$/);
+    if (file) {
+      const a = el.querySelector('a[download], a[aria-label^="Download "]');
+      entries.push({kind: 'file', name: file[1], depth,
+                    href: a ? a.getAttribute('href') : null,
+                    download: a ? a.getAttribute('download') : null});
+    }
+  }
+  const wsDl = panel.querySelector('a[aria-label="Download workspace"]');
+  return {found: true, stats, entries,
+          expandable: q(panel, 'button[aria-label^="Expand "], div[role="button"][aria-label^="Expand "]').length,
+          archive_href: wsDl ? wsDl.getAttribute('href') : null};
+}
+"""
+
+WS_EXPAND_JS = r"""
+(customSelectors) => {
+  let panel = null;
+  for (const sel of (customSelectors || [])) {
+    const el = document.querySelector(sel);
+    if (el) { panel = el; break; }
+  }
+  if (!panel) {
+    // 从「下载工作区」链接往上找：先找**同时包含文件行**的容器（真正的面板根），
+    // 找不到（空工作区）再退化成只认 Workspace + files 文案的容器。
+    const anchor = document.querySelector('a[aria-label="Download workspace"]');
+    // 注意：不要把 a[aria-label^="Download "] 算进来 —— 头部那个「Download workspace」
+    // 也在 header 里，会把 header 误判成面板根。
+    const hasRows = (n) => !!(n.querySelector && n.querySelector(
+      '[aria-label$=" file"], [aria-label$=" folder"]'));
+    for (const needRows of [true, false]) {
+      let node = anchor;
+      while (node && node !== document.body) {
+        const t = node.innerText || '';
+        if (/Workspace/.test(t) && /\bfiles\b/i.test(t) && (!needRows || hasRows(node))) {
+          panel = node;
+          break;
+        }
+        node = node.parentElement;
+      }
+      if (panel) break;
+    }
+  }
+  if (!panel) return false;
+  const btn = panel.querySelector('button[aria-label^="Expand "], div[role="button"][aria-label^="Expand "]');
+  if (!btn) return false;
+  btn.click();
+  return true;
+}
+"""
 
 
 # 这些文本出现在页面上，但绝不是回答（聊天页的控件/占位文案）

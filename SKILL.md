@@ -62,6 +62,11 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 | 会话还能用吗 | `arena check` |
 | 一眼看全状态（不用开浏览器） | `arena status` |
 | 最近聊了些什么 | `arena chat list` / `arena chat last` |
+| 看 Agent 产出了哪些文件 | `arena workspace list`（默认最近会话，`--chat <id>` 指定） |
+| 看某个文件的内容 | `arena workspace show <path>`（stdout 就是内容） |
+| 把产出文件拿回来 | `arena workspace download <path> --out ./out/` |
+| 打包整个工作区 | `arena workspace download --all --out ws.zip` |
+| 内网 / 需要代理 | `--proxy http://127.0.0.1:7890`（或 `arena config set proxy …`） |
 | 换一套登录态（多账号） | `arena profile create work --from <cookies> && arena profile use work` |
 | 查某命令的参数/风险等级 | `arena schema ask` / `arena schema`（agent 自省用） |
 | 环境体检 | `arena doctor` |
@@ -119,6 +124,9 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
   `high-risk-write` 不带 `--yes` 会被拒绝（退出码 1，`confirmation_required`，hint 里给两条路）——
   **先问用户**，用户同意后再加 `--yes`，不要自己加。
 - 不确定某个命令怎么调：`arena schema <命令>` 看参数、类型、默认值、风险等级，比翻 README 快。
+- 用户要的成品在 Arena 工作区里（Agent 说"已生成 xxx.md"）时，别自己复述内容：
+  `arena workspace list` 找到路径 → `arena workspace download <path> --out <本地>` 拿回来再交付。
+  只有纯文本内容才用 `arena workspace show`。覆盖本地文件要 `--yes`（先问用户）。
 
 其它注意：
 - **绝不要**把 `state.json` 或 cookies 值回显到对话里，那是账号凭证（脚本本身也只打印 cookie 名字）。

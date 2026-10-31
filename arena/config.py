@@ -28,11 +28,12 @@ DEFAULTS: dict[str, Any] = {
     "color": True,
     "max_chars": 0,          # 输出长回答时截断（0 = 不截断）
     "selectors": {},         # 透传给引擎的选择器覆盖
+    "proxy": "",             # 所有请求走这个代理（http/https/socks5，带 user:pass 也支持）
 }
 
 # 可以 arena config set 的键（防手滑写错键名）
 SETTABLE = {"base_url", "agent_path", "timeout", "stable", "profile", "format",
-            "color", "max_chars", "selectors"}
+            "color", "max_chars", "selectors", "proxy"}
 
 
 def arena_home() -> Path:
@@ -145,9 +146,14 @@ def build_context(args: Any, ui: Any) -> Context:
     if _env("NO_COLOR"):
         cfg["color"] = False
 
+    # 代理：flag > 配置文件 > ARENA_PROXY > 系统代理环境变量
+    if not cfg.get("proxy"):
+        cfg["proxy"] = (_env("ARENA_PROXY") or _env("HTTPS_PROXY") or _env("https_proxy")
+                        or _env("ALL_PROXY") or _env("all_proxy") or "")
+
     # 命令行 flag
     for flag, key in (("base_url", "base_url"), ("timeout", "timeout"), ("stable", "stable"),
-                      ("profile", "profile"), ("max_chars", "max_chars")):
+                      ("profile", "profile"), ("max_chars", "max_chars"), ("proxy", "proxy")):
         value = getattr(args, flag, None)
         if value is not None:
             cfg[key] = value
@@ -171,6 +177,7 @@ def build_context(args: Any, ui: Any) -> Context:
 
     overrides: dict[str, Any] = {
         "base_url": cfg["base_url"],
+        "proxy": cfg.get("proxy") or "",
         "wait_timeout": cfg["timeout"],
         "stable_seconds": cfg["stable"],
         "agent_path": cfg["agent_path"],
