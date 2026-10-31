@@ -11,6 +11,7 @@ run_entry_tests.py —— 验证「Hermes 技能入口」这一层
   6. install.sh 把技能装进 HERMES_HOME，装完 verify_skill.py 仍然合规
   7. SKILL.md frontmatter/章节合规（scripts/verify_skill.py）
   8. 数据目录从 ~/.arena-agent 迁到 ~/.arena-cli（只做一次，登录态不丢）
+  9. README / docs 里的相对链接都指向真实存在的文件（文档不要写飞）
 """
 
 from __future__ import annotations
@@ -182,6 +183,29 @@ def main() -> int:
                          capture_output=True, text=True, env=env3, cwd=str(ROOT)).stdout.strip()
     check("ARENA_HOME 优先", out == str(mig3 / "mine"), out)
     check("ARENA_HOME 下不动旧目录", (mig3 / ".arena-agent").exists())
+
+    # ---------- 9. 文档链接 ----------
+    print("\n[9] README / docs 的相对链接")
+    import re
+
+    docs = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")),
+            ROOT / "references" / "troubleshooting.md", ROOT / "SKILL.md"]
+    broken: list[str] = []
+    for md in docs:
+        for target in re.findall(r"\]\(([^)\s]+)\)", md.read_text(encoding="utf-8")):
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            path = (md.parent / target.split("#")[0]).resolve()
+            if not path.exists():
+                broken.append(f"{md.relative_to(ROOT)} → {target}")
+    check("链接都有效", not broken, "; ".join(broken))
+    check("README 短（<= 120 行，细节放 docs/）",
+          len((ROOT / "README.md").read_text(encoding="utf-8").splitlines()) <= 120,
+          f"{(ROOT / 'README.md').read_text(encoding='utf-8').count(chr(10))} 行")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for topic in ("docs/cli.md", "docs/agent.md", "docs/auth.md",
+                  "docs/hermes-skill.md", "docs/development.md", "docs/migration.md"):
+        check(f"README 索引里有 {topic}", topic in readme)
 
     srv.shutdown()
     shutil.rmtree(tmp, ignore_errors=True)
