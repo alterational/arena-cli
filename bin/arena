@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# 免安装启动器：把仓库根目录加进 PYTHONPATH 后调用 arena 包
+# 用法：./bin/arena ask "问题"   或把 bin/ 加进 PATH
+here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m arena "$@"

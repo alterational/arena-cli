@@ -1,0 +1,78 @@
+{
+  "_comment": "覆盖默认配置：只写想改的字段。页面改版时先改这里，不要改代码。",
+  "base_url": "https://arena.ai",
+  "agent_path": "/agent",
+  "editor_selectors": [
+    "div.tiptap.ProseMirror[contenteditable=\"true\"]",
+    ".ProseMirror[contenteditable=\"true\"]",
+    "div[contenteditable=\"true\"][role=\"textbox\"]"
+  ],
+  "send_selectors": [
+    "button[aria-label=\"Send message\"]",
+    "button[aria-label*=\"Send\" i]",
+    "button[type=\"submit\"]"
+  ],
+  "streaming_selectors": [
+    "button[aria-label*=\"Stop\" i]",
+    "[data-streaming=\"true\"]",
+    "[data-state=\"streaming\"]"
+  ],
+  "turn_selectors": [
+    "[data-agent-transcript-message]"
+  ],
+  "assistant_selectors": [
+    "[data-agent-transcript-message]:not(:has([data-user-message-body-row])) .prose",
+    "[data-agent-transcript-message]:not(:has([data-user-message-body-row]))",
+    "[data-message-author-role=\"assistant\"]",
+    "div.prose:not(.tiptap):not(.ProseMirror)",
+    "[class*=\"assistant\"] .prose"
+  ],
+  "user_selectors": [
+    "[data-user-message-body-row]",
+    "[data-message-author-role=\"user\"]",
+    "[data-role=\"user\"]"
+  ],
+  "anonymous_markers": [
+    "Experience the frontier"
+  ],
+  "logged_in_selectors": [
+    "a[href=\"/history/search\"]",
+    "button[aria-label*=\"New chat\" i]",
+    "[aria-label*=\"New Chat\" i]"
+  ],
+  "account_selectors": [
+    "button[aria-label*=\"account\" i]",
+    "[aria-label*=\"profile\" i]"
+  ],
+  "auth_cookie_patterns": [
+    "arena-auth",
+    "__session",
+    "next-auth",
+    "session",
+    "auth",
+    "token"
+  ],
+  "answer_stop_markers": [
+    "Was this task successful?",
+    "Keep working",
+    "All files that are created or uploaded in this session",
+    "Stop response"
+  ],
+  "noise_lines": [
+    "Copy",
+    "Copied",
+    "Retry",
+    "Regenerate",
+    "Edit",
+    "Share",
+    "Like",
+    "Dislike",
+    "Show more",
+    "Show less",
+    "Stop"
+  ],
+  "wait_timeout": 900,
+  "stable_seconds": 2.5,
+  "poll_seconds": 1.0,
+  "login_timeout": 240
+}

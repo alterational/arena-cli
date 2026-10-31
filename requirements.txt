@@ -1,0 +1,5 @@
+# 核心：浏览器自动化（browser-use 的底层也是 Playwright）
+playwright>=1.45
+
+# 可选：想用 LLM 兜底/自愈（选择器找不到时让它自己找元素）再装
+# browser-use>=0.5
