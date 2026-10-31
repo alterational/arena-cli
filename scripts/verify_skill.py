@@ -143,7 +143,7 @@ def main() -> int:
     for e in errors:
         print(f"  ❌ {e}")
     if not errors:
-        print(f"  ✅ SKILL.md 合规（{fm.get("name") or root.name}）：name/description/metadata/章节/脚本引用全部通过")
+        print(f"  ✅ SKILL.md 合规（{fm.get('name') or root.name}）：name/description/metadata/章节/脚本引用全部通过")
     else:
         print(f"\n共 {len(errors)} 个错误")
     return 0 if not errors else 1
