@@ -44,7 +44,7 @@ pipx install .              # 或隔离安装
 命令结构是 `<命令> <子命令>`，**全局 flag 写在命令前或后都生效**：
 
 ```
-arena ask [内容]              把内容发给 Agent，打印回答（默认人类可读，--json 结构化，--no-wait 挂后台）
+arena ask [内容]              把内容发给 Agent，打印回答（--json 结构化 / --stream 流式 / --no-wait 后台 / --chat 多轮）
 arena login                   登录并保存 cookies（--email / --code / --wait）
 arena check                   登录态体检（--probe 会真发一条验证）
 arena status                  离线总览：profile / 会话 / 配置 / 最近后台任务（不启动浏览器）
@@ -77,8 +77,16 @@ arena cookies import ~/uploads/arena.ai_cookies.txt
 arena check
 arena ask --json "把结论整理成表格" --max-chars 3500
 
-# 在刚才那个会话里接着问
+# 多轮：在刚才那个会话里接着问（--chat 支持 last / chat_id / chat list 的序号）
 arena ask --chat last "把上面的结论翻译成英文"
+arena ask --chat 1 "第一轮那个结论再展开一点"
+arena ask --chat 01a19037-62e2-735d-937e-b500aa740edc "继续"
+
+# 流式：边生成边看（进度走 stderr，stdout 仍只有最终回答）
+arena ask --stream "写一篇 800 字的竞品分析"
+
+# 流式 + 结构化可以同时用（JSON 最后一次性输出，中途增量在 stderr）
+arena ask --stream --json "…" --jq '.data.answer'
 
 # 多账号：工作号 / 个人号各一套登录态
 arena profile create work --from ~/uploads/work_cookies.txt

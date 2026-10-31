@@ -156,6 +156,36 @@ def main() -> int:
     qf.write_text("文件里的问题", encoding="utf-8")
     check("--file 可用", "文件里的问题" in run(*g, "ask", "--file", str(qf)).stdout)
 
+    # 多轮：--chat 指定会话（last / 序号 / 裸 id 三种写法）
+    d = as_json(run(*g, "--json", "ask", "--chat", "last", "接着聊第二轮"))
+    check("--chat last 继续会话", d.get("ok") is True, str(d)[:200])
+    check("--chat last 落到真实 chat 页",
+          "chat-aaaaaaaa" in str(d.get("data", {}).get("url", "")),
+          str(d.get("data", {}).get("url")))
+    d2 = as_json(run(*g, "--json", "ask", "--chat", "1", "序号也能用"))
+    check("--chat 序号继续会话", d2.get("ok") is True
+          and "chat-aaaaaaaa" in str(d2.get("data", {}).get("url", "")), str(d2)[:200])
+    d3 = as_json(run(*g, "--json", "ask", "--chat", "chat-bbbbbbbb-0002", "裸 id"))
+    check("--chat 裸 id 继续会话", d3.get("ok") is True
+          and "chat-bbbbbbbb-0002" in str(d3.get("data", {}).get("url", "")), str(d3)[:200])
+    d4 = as_json(run(*g, "--json", "ask", "--chat", "1", "dryrun", "--dry-run"))
+    check("--dry-run 显示会话目标", str(d4.get("data", {}).get("chat", "")).startswith("1")
+          or d4.get("dry_run") is True, str(d4)[:160])
+
+    # 流式：stderr 有中间过程，stdout 仍然只有最终回答
+    r = run(*g, "ask", "--stream", "流式输出测试")
+    check("--stream 退出码 0", r.returncode == 0, r.stderr[-160:])
+    check("--stream stderr 有增量", "ECHO[" in r.stderr, repr(r.stderr[-120:]))
+    check("--stream 增量拼起来就是完整回答", r.stderr.strip() == r.stdout.strip(),
+          f"stdout={r.stdout[:60]!r} stderr={r.stderr[:60]!r}")
+    check("--stream stdout 仍只有回答正文",
+          r.stdout.strip().startswith("ECHO[") and "{" not in r.stdout[:2], r.stdout[:120])
+    check("--stream 不带 flag 时 stderr 无正文", "ECHO[" not in run(*g, "ask", "安静模式").stderr)
+    check("-q 下不流式", "ECHO[" not in run(*g, "-q", "ask", "--stream", "安静流式").stderr)
+    d = as_json(run(*g, "--json", "ask", "--stream", "流式+json"))
+    check("--stream 与 --json 可共存", d.get("ok") is True
+          and d.get("data", {}).get("answer", "").startswith("ECHO["), str(d)[:160])
+
     # ---------- 7. chat ----------
     print("\n[7] arena chat")
     check("list 读到历史", "用上传的 cookies 提问" in run(*g, "chat", "list").stdout)

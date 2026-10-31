@@ -30,6 +30,11 @@ PAGE = """<!DOCTYPE html>
  #sidebar a{{display:block;color:#bbb;font-size:13px;padding:4px 0;text-decoration:none}}
  #msgs>div{{margin:14px 0;padding:12px;border-radius:8px;background:#242424;white-space:pre-wrap}}
  #msgs .prose{{white-space:pre-wrap}}
+ #feedback{{border:1px solid #444;border-radius:10px;padding:10px 14px;background:#242424;margin-top:16px}}
+ #feedback .fb-head{{display:flex;justify-content:space-between;align-items:center;gap:16px}}
+ #feedback .esc{{color:#888;font-size:12px;margin-left:6px}}
+ #feedback .fb{{display:block;width:100%;text-align:left;margin-top:8px;background:#2e2e2e;color:#eee}}
+ #feedback #fbclose{{background:transparent;color:#888;font-size:14px;padding:2px 6px}}
  [role=dialog]{{position:fixed;inset:0;margin:auto;width:420px;height:fit-content;background:#2a2a2a;
    border:1px solid #555;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:10px}}
  input{{padding:10px;border-radius:6px;border:1px solid #555;background:#1b1b1b;color:#eee}}
@@ -48,6 +53,13 @@ PAGE = """<!DOCTYPE html>
     <div class="tiptap ProseMirror" contenteditable="true"></div>
     <button aria-label="Send message" id="send">&#8594;</button>
   </div>
+</div>
+
+<div id="feedback" class="hidden">
+  <div class="fb-head"><b>Was this task successful?</b><span><button id="fbclose" aria-label="Close">&#10005;</button><span class="esc">Esc</span></span></div>
+  <button class="fb">Yes</button>
+  <button class="fb">No</button>
+  <button class="fb">Keep working</button>
 </div>
 
 <div role="dialog" id="terms" class="hidden">
@@ -136,6 +148,16 @@ function doSend(text) {{
     if (i >= answer.length) {{ clearInterval(timer); stop.remove(); }}
   }}, 12);
 }}
+// 复刻线上：会话页（/agent/<id>）底部是「Was this task successful?」反馈卡，输入框被它顶掉
+const feedback = document.getElementById('feedback');
+const composerRow = document.querySelector('.row');
+const isChatPage = /^\\/agent\\/[^/]+/.test(location.pathname);
+function showFeedback() {{ feedback.classList.remove('hidden'); composerRow.classList.add('hidden'); }}
+function hideFeedback() {{ feedback.classList.add('hidden'); composerRow.classList.remove('hidden'); }}
+if (isChatPage) {{ showFeedback(); }}
+document.getElementById('fbclose').onclick = hideFeedback;
+document.addEventListener('keydown', e => {{ if (e.key === 'Escape') hideFeedback(); }});
+
 document.getElementById('send').onclick = send;
 ed.addEventListener('keydown', e => {{
   if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); send(); }}

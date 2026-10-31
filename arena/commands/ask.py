@@ -27,6 +27,69 @@ def trim(answer: str, url: str | None, limit: int) -> str:
     return answer[:limit].rstrip() + tail
 
 
+def resolve_chat(session, ref: str) -> str:
+    """把 `last` / 序号（arena chat list 里的 #1）解析成真正的 chat_id。
+
+    open_chat() 只认 chat_id / URL，直接传 "last" 会被当成 id 拼成 /agent/last。
+    """
+    ref = (ref or "").strip()
+    if ref in ("last", "最新", "-1"):
+        chats = session.list_chats(limit=1)
+        if not chats:
+            from ..errors import ArenaError
+            raise ArenaError("validation", "not_found", "没有历史会话可以接着聊",
+                             "先不指定 --chat 发一条，或者 arena chat list 看看有哪些",
+                             exit_code=1)
+        return chats[0]["chat_id"]
+    if ref.isdigit():
+        n = int(ref)
+        chats = session.list_chats(limit=max(n, 20))
+        if not 1 <= n <= len(chats):
+            from ..errors import ArenaError
+            raise ArenaError("validation", "not_found",
+                             f"序号 {n} 超出范围（只有 {len(chats)} 条）",
+                             "arena chat list 看序号", exit_code=1)
+        return chats[n - 1]["chat_id"]
+    return ref
+
+
+class Streamer:
+    """把每次抽到的「当前完整文本」增量打到 stderr（stdout 仍只留最终回答）。
+
+    注意：open_session() 在非 verbose 模式会把 sys.stderr 重定向到 StringIO（为了吞掉
+    Playwright 的噪音），所以这里必须写 sys.__stderr__，否则增量会被一起吞掉。
+    """
+
+    def __init__(self, ui) -> None:
+        self.ui = ui
+        self.written = ""
+        self.enabled = True
+
+    @staticmethod
+    def _err():
+        return sys.__stderr__ or sys.stderr
+
+    def __call__(self, text: str) -> None:
+        if not self.enabled or self.ui.quiet:
+            return
+        if text.startswith(self.written):          # 正常情况：文本只会变长
+            delta = text[len(self.written):]
+        else:                                      # 重新渲染/改写了，重新打一份
+            delta = ("\n" if self.written else "") + text
+        self.written = text
+        if delta:
+            err = self._err()
+            err.write(delta)
+            err.flush()
+
+    def close(self) -> None:
+        if self.enabled and self.written and not self.ui.quiet:
+            err = self._err()
+            err.write("\n")
+            err.flush()
+        self.enabled = False
+
+
 def _timeout(ctx, args):
     return getattr(args, "timeout", None) or ctx.get("timeout")
 
@@ -60,7 +123,9 @@ def run(ctx, args) -> int:
             "prompt_preview": prompt[:200],
             "state_file": str(ctx.paths.state_file),
             "session_ready": bool(session.get("has_auth_cookie")),
-            "would": ["打开 arena.ai/agent", "写入输入框并提交", "等待生成稳定", "取回回答"],
+            "stream": bool(getattr(args, "stream", False)),
+            "would": ["打开 arena.ai/agent", "写入输入框并提交", "等待生成稳定",
+                      "取回回答" + ("（过程中把增量打到 stderr）" if getattr(args, "stream", False) else "")],
         }
         if not data["session_ready"]:
             data["warning"] = "没有可用登录态，真正执行时会报 auth.login_required"
@@ -93,9 +158,16 @@ def run(ctx, args) -> int:
         ))
 
     # ---- 正常执行 ----
+    streamer = Streamer(ctx.ui) if getattr(args, "stream", False) else None
     with open_session(ctx) as session:
+        if chat:
+            chat = resolve_chat(session, chat)
         result = session.ask(prompt, timeout=_timeout(ctx, args),
-                             stable=_stable(ctx, args), chat=chat)
+                             stable=_stable(ctx, args), chat=chat,
+                             on_update=streamer,
+                             poll=0.5 if streamer else None)
+    if streamer:
+        streamer.close()
 
     answer = result.get("answer", "")
     limit = getattr(args, "max_chars", None)

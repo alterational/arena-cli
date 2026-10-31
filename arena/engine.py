@@ -120,6 +120,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "All files that are created or uploaded in this session",
         "Stop response",
     ],
+    # 会话结束后 Arena 会把输入框替换成「Was this task successful?」反馈卡（Esc / × 可关），
+    # 关掉之后 composer 才会回来 —— 多轮追问必须先把这张卡关掉
+    "feedback_text": "Was this task successful?",
+    "feedback_dismiss_selectors": [
+        'button[aria-label*="Close" i]',
+        'button[aria-label*="Dismiss" i]',
+        'button:has-text("Esc")',
+    ],
     # 弹窗文案特征
     "terms_dialog_text": "Terms of Use",
     "terms_agree_texts": ["Agree", "I Agree", "同意"],
@@ -476,6 +484,8 @@ class Session:
             loc = first_visible(self.page, self.cfg["editor_selectors"])
             if loc is not None:
                 return loc
+            if self.dismiss_feedback():       # 会话页：反馈卡挡住了输入框
+                continue
             if self.try_pass_challenge():
                 saw_challenge = True
                 continue
@@ -489,11 +499,40 @@ class Session:
             )
         raise SkillError(
             "UI_CHANGED",
-            f"{timeout_s:.0f}s 内没找到输入框（composer）。可能页面改版、被拦截，或需要登录；"
+            f"{timeout_s:.0f}s 内没找到输入框（composer）。可能页面改版、被拦截、需要登录，"
+            "或「Was this task successful?」反馈卡没关掉；"
             "可用 --headed 观察，并检查 config.json 里的 editor_selectors",
         )
 
     # ---- 弹窗处理 ------------------------------------------------------------
+    def dismiss_feedback(self) -> bool:
+        """关掉「Was this task successful?」反馈卡（它占着输入框的位置）。"""
+        assert self.page is not None
+        page = self.page
+        try:
+            if self.cfg.get("feedback_text") and self.cfg["feedback_text"] not in body_text(page):
+                return False
+        except PWError:
+            return False
+        for sel in self.cfg.get("feedback_dismiss_selectors") or []:
+            try:
+                btn = page.locator(sel).first
+                if btn.count() and btn.is_visible():
+                    btn.click(timeout=1500)
+                    log("已关闭反馈卡（点关闭按钮）")
+                    page.wait_for_timeout(300)
+                    return True
+            except PWError:
+                continue
+        try:                                  # 卡片上写着 Esc，直接按键最稳
+            page.click("body", position={"x": 5, "y": 5}, timeout=1000)
+            page.keyboard.press("Escape")
+            log("已关闭反馈卡（Esc）")
+            page.wait_for_timeout(300)
+            return True
+        except PWError:
+            return False
+
     def handle_terms(self, quiet: bool = True) -> bool:
         """首次进入会弹 Terms of Use，需要点 Agree。"""
         assert self.page is not None
@@ -716,9 +755,17 @@ class Session:
 
     # ---- 主流程：提问 -------------------------------------------------------
     def ask(self, prompt: str, timeout: Optional[float] = None,
-            stable: Optional[float] = None, chat: Optional[str] = None) -> dict[str, Any]:
+            stable: Optional[float] = None, chat: Optional[str] = None,
+            on_update: Optional[Any] = None,
+            poll: Optional[float] = None) -> dict[str, Any]:
+        """提问并取回回答。
+
+        on_update(text)：每当下抽到更长的回答就回调一次（用来做流式输出 / 进度日志）。
+        poll：轮询间隔秒数（流式时调小一点更跟手）。
+        """
         timeout = timeout or self.cfg["wait_timeout"]
         stable = stable or self.cfg["stable_seconds"]
+        poll_seconds = float(poll or self.cfg["poll_seconds"])
         assert self.page is not None
         page = self.page
 
@@ -792,7 +839,7 @@ class Session:
         answer = ""
         seen_transcript = False
         while time.time() < deadline:
-            page.wait_for_timeout(int(self.cfg["poll_seconds"] * 1000))
+            page.wait_for_timeout(int(poll_seconds * 1000))
             self.raise_http_failure(http_failures)
             if self.has_transcript():
                 seen_transcript = True
@@ -804,6 +851,11 @@ class Session:
             answer = self.extract_answer(prompt, baseline)
             if answer != last_text:
                 last_text, last_change = answer, time.time()
+                if on_update is not None and answer:
+                    try:
+                        on_update(answer)
+                    except Exception:  # noqa: BLE001  回调出错不能影响主流程
+                        pass
             else:
                 if answer and not self.is_streaming() and time.time() - last_change >= stable:
                     log(f"输出已稳定（{time.time() - started:.0f}s）")

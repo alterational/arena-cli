@@ -53,6 +53,25 @@
    所以「消息没了 + 落地页」必须判定为失败，绝不能把整页文本差分当成回答（曾经抽出过 `"Agent"` 这种控件文案）。
    现在的做法：监听 `create-chat` 的响应状态 + 检测「对话区消失」，报 `RATE_LIMITED`（退出码 7）。
 
+## 多轮对话（`--chat`）
+
+`arena ask --chat <chat_id|URL|last|序号>` 会先 `goto /agent/<id>`，再发新消息。
+
+**坑**：一个已经跑完的会话，底部不是输入框，而是「**Was this task successful?**」反馈卡
+（`Yes / No / Keep working` + 右上角 `×` / `Esc`）。它把 composer 顶掉了，所以 `wait_editor()`
+会一直找不到输入框 → 报 `UI_CHANGED`。处理：`dismiss_feedback()` —— 认 `feedback_text` 文案，
+优先点 `button[aria-label*="Close"]`，退路是按 `Esc`，然后重新等输入框。
+
+另外 `last` / 序号（`arena chat list` 里的 `#1`）由 `commands/ask.resolve_chat()` 换成真 chat_id，
+`Session.open_chat()` 只认 chat_id / URL，别直接把 `last` 传进去（会拼成 `/agent/last`）。
+
+## 流式输出（`--stream`）
+
+引擎每轮轮询都会 `extract_answer()`，`Session.ask(on_update=...)` 在文本变长时回调，
+`commands/ask.Streamer` 把**增量**写到 stderr，stdout 仍然只有最终回答（`--json` 也不受影响）。
+注意 `open_session()` 非 verbose 时会把 `sys.stderr` 重定向进 StringIO 吞掉 Playwright 噪音，
+所以 Streamer 必须写 `sys.__stderr__`。轮询间隔在流式时降到 0.5s。
+
 ## 自测
 
 ```bash

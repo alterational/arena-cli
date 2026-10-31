@@ -40,6 +40,7 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 ## When to Use
 
 - 用户说「用 Arena 的 Agent 帮我做 / 查 / 生成…」「把这段发给 arena agent 跑一下」「Agent Mode 那边结果怎么样」
+- 用户要在**同一个会话里接着追问**（多轮上下文）：第二次起加 `--chat last`
 - 用户上传了 arena.ai 的 cookies 文件，想直接借这个登录态提问
 - 任务需要 Arena Agent 的长链执行能力（调研、多步操作、产出文件），而不是本机一次性回答
 
@@ -55,7 +56,8 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 | 只要回答那一句 | 加 `--jq '.data.answer'`（不必再自己解析 JSON） |
 | 任务很慢、不想阻塞 | `arena ask --no-wait "…"` → `arena jobs result last`（见下） |
 | 发到聊天软件、怕太长 | 加 `--max-chars 3500`（超长自动截断并附会话链接） |
-| 在已有会话里接着问 | `arena ask --chat last "<用户原话>"` |
+| 在已有会话里接着问（多轮） | `arena ask --chat last "<用户原话>"` · 也可 `--chat <chat_id>` 或 `--chat 1`（chat list 的序号） |
+| 想边跑边看进度 | 加 `--stream`（增量打到 stderr，stdout 仍只有最终回答） |
 | 先看会发生什么、不执行 | 任何写操作加 `--dry-run` |
 | 会话还能用吗 | `arena check` |
 | 一眼看全状态（不用开浏览器） | `arena status` |
@@ -87,6 +89,10 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 
      `job_id` 也可以写 `last`：`arena jobs result last`。日志在 `arena jobs logs <job_id>`。
 4. **交付**：stdout 就是回答正文，**原样转给用户**。
+   - 多轮：用户接着追问时用 `arena ask --chat last "…"`（`--chat <chat_id>` / `--chat <序号>` 也可），
+     这样 Arena 侧保留上下文，不用把上一轮内容再抄一遍；
+   - 想让用户看到进度：加 `--stream`，中间过程走 **stderr**（不会污染 stdout 的回答正文，
+     `--json` 同时用也没问题）。工具本身不支持"逐 token 回传"，这是轮询页面的增量输出。
    - 长回答（> 3500 字）：先给结论摘要 + `url` 会话链接，问用户要不要全文；
    - 带 `--json` 时把 `answer` 给用户，`url` 留在回复里方便回溯。
 5. **失败处理**：命令会打印 `❌ <CODE>: <建议>` 并以非 0 退出。按下面的表处理，不要重复盲目重试。
@@ -99,6 +105,7 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 | `❌ BLOCKED` | 撞上 Cloudflare 人机校验 | 让用户导出新鲜 cookies（含 `cf_clearance`）；或 `--headed` 由人过一次；降低频率 |
 | `❌ TIMEOUT` | 超过等待上限还在跑 | 加 `--timeout 1800`，或把 `url` 交给用户自己看 |
 | `❌ RATE_LIMITED` | Arena 限流（`create-chat` 返回 429，本账号请求过多/额度用尽） | **别重试**：告诉用户"这个账号被临时限流了，等几分钟再试"；要立刻继续就换一份 cookies（`arena profile create work --from <cookies> --yes`） |
+| `❌ UI_CHANGED` + 用 `--chat` 时 | 会话页底部的「Was this task successful?」反馈卡顶掉了输入框 | 已自动关闭（Esc / ×）；仍失败就 `--headed` 看一眼 |
 | `❌ UI_CHANGED` | 页面改版，选择器失效 | 见 `references/troubleshooting.md`，改 `~/.arena-agent/config.json` |
 | `❌ SEND_FAILED` | 消息没提交 | 重试一次；再失败用 `--headed` 观察 |
 | `❌ BAD_INPUT` | cookies 文件格式不认识 / 没给内容 | 支持 Netscape `cookies.txt`、EditThisCookie JSON、Playwright storage_state |

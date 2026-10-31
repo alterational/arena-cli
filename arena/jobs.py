@@ -198,10 +198,22 @@ def run_worker(job_dir: Path) -> int:
     })
     started = time.time()
     try:
+        progress = {"logged": 0}
+
+        def on_update(text: str) -> None:      # 进度写进 run.log，`arena jobs logs` 能看到
+            if len(text) - progress["logged"] >= 200:
+                progress["logged"] = len(text)
+                print(f"[进度] 已生成 {len(text)} 字", flush=True)
+
         with Session(cfg, Path(job["profile_dir"]), Path(job["state_file"]),
                      headed=bool(opts.get("headed"))) as session:
+            chat = opts.get("chat")
+            if chat:
+                from .commands.ask import resolve_chat   # 延迟导入，避免循环依赖
+                chat = resolve_chat(session, chat)
             result = session.ask(job["prompt"], timeout=opts.get("timeout"),
-                                 stable=opts.get("stable"), chat=opts.get("chat"))
+                                 stable=opts.get("stable"), chat=chat,
+                                 on_update=on_update)
         result["elapsed_seconds"] = round(time.time() - started, 1)
         _write_json(job_dir / "result.json", result)
         job.update(status="done", finished_at=_now(), elapsed_seconds=result["elapsed_seconds"])

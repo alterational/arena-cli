@@ -152,7 +152,10 @@ def build_parser() -> Parser:
              "默认输出回答正文；--json 输出结构化结果；--no-wait 挂后台。", common)
     a.add_argument("prompt", nargs="*", help="要发送的内容；`-` 或省略表示从 stdin 读")
     a.add_argument("--file", help="从文件读取 prompt")
-    a.add_argument("--chat", help="在已有会话里继续提问（chat_id / URL / last）")
+    a.add_argument("--chat",
+                   help="在已有会话里继续提问（chat_id / URL / last / arena chat list 的序号）")
+    a.add_argument("--stream", action="store_true", default=argparse.SUPPRESS,
+                   help="把生成过程中的增量实时打到 stderr（stdout 仍只有最终回答）")
 
     # ---- login / check / status ----
     lg = _sub(sub, "login", "登录并保存 cookies",
