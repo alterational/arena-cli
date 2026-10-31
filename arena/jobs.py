@@ -3,7 +3,7 @@
 对齐 lark-cli 的两段式（--no-wait / 后续取回）模式：agent 不必阻塞几分钟等浏览器跑完。
 
 目录结构：
-    ~/.arena-agent/jobs/<job_id>/
+    ~/.arena-cli/jobs/<job_id>/
         job.json      # 状态、prompt、profile、pid
         result.json   # 完成后的结果（和 arena ask --json 的 data 同构）
         run.log       # 引擎日志

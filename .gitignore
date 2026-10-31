@@ -1,5 +1,5 @@
 # ---- 凭证：等同密码，绝不入库 ----
-.arena-agent/
+.arena-cli/
 state.json
 cookies.json
 *.cookies.txt

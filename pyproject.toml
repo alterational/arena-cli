@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arena-cli"
-version = "2.3.0"
+version = "2.4.0"
 description = "用命令行驱动 arena.ai/agent：登录、导入 cookies、提问、取回 Agent 的结果"
 readme = "README.md"
 requires-python = ">=3.9"

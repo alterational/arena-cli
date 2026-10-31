@@ -16,7 +16,7 @@ HINTS: dict[str, str] = {
     "LOGIN_TIMEOUT": "没等到登录完成：加长 --wait，或直接用 cookies 文件",
     "SEND_FAILED": "消息没发出去：稍后重试一次；连续失败用 `arena ask --headed` 观察页面",
     "TIMEOUT": "Agent 还在跑：`--timeout 1800` 加长等待，或用 `arena chat last` 拿到链接自己看",
-    "UI_CHANGED": "页面结构变了：改 `~/.arena-agent/config.json` 里的 selectors，见 references/troubleshooting.md",
+    "UI_CHANGED": "页面结构变了：改 `~/.arena-cli/config.json` 里的 selectors，见 references/troubleshooting.md",
     "BLOCKED": "撞上 Cloudflare 人机校验：导入新鲜 cookies（含 cf_clearance），或 `--headed` 人工过一次",
     "BAD_INPUT": "输入不合法：cookies 支持 Netscape cookies.txt / EditThisCookie JSON / storage_state",
 }

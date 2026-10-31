@@ -1,6 +1,6 @@
 # 维护手册：选择器、错误码、DOM 结构
 
-页面改版时**只改配置**，不改代码：`cp config.example.json ~/.arena-agent/config.json` 后按需修改，
+页面改版时**只改配置**，不改代码：`cp config.example.json ~/.arena-cli/config.json` 后按需修改，
 或给 `arena_ask.py` / `arena_agent.py` 传 `--config <文件>`。
 
 ## arena.ai/agent 的真实结构（实测 2026-10）
@@ -21,8 +21,8 @@
 
 ## 登录态怎么存
 
-- 主存储：`~/.arena-agent/prof`（浏览器用户目录，最稳）
-- 可移植快照：`~/.arena-agent/state.json`（cookies + localStorage，权限 600）
+- 主存储：`~/.arena-cli/prof`（浏览器用户目录，最稳）
+- 可移植快照：`~/.arena-cli/state.json`（cookies + localStorage，权限 600）
 - 登录 cookie 是 **httpOnly**，`document.cookie` 读不到 → 必须用 Playwright 的 `storage_state`
 - 关键凭据 cookie 名：`arena-auth-prod-v1.1` / `arena-auth-prod-v1.0`（配置项 `auth_cookie_patterns`）
 

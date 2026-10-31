@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# install.sh —— 把本目录安装成 Hermes 技能（斜杠命令 /arena-agent）
+# install.sh —— 把本目录安装成 Hermes 技能（斜杠命令 /arena-cli）
 #
-#   ./install.sh                 # 安装到 ~/.hermes/skills/arena-agent
+#   ./install.sh                 # 安装到 ~/.hermes/skills/arena-cli
 #   ./install.sh --force         # 已存在时覆盖
 #   HERMES_HOME=~/work/.hermes ./install.sh   # 指定 profile
 #   ./install.sh --link          # 用软链接（改代码即时生效，适合开发）
 #
-# 安装完成后在 Hermes 里直接：/arena-agent 帮我调研三家竞品的定价策略
+# 安装完成后在 Hermes 里直接：/arena-cli 帮我调研三家竞品的定价策略
 set -euo pipefail
 
-SKILL_NAME="arena-agent"
+SKILL_NAME="arena-cli"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_ROOT="${HERMES_HOME:-$HOME/.hermes}"
 DEST="$HERMES_ROOT/skills/$SKILL_NAME"
@@ -24,6 +24,11 @@ for arg in "$@"; do
     *) echo "未知参数：$arg" >&2; exit 2 ;;
   esac
 done
+
+# 旧版本装的名字是 arena-agent：留着会变成两个斜杠命令，提醒一下
+if [ -e "$HERMES_ROOT/skills/arena-agent" ] && [ "$MODE" != "link" ]; then
+  echo "⚠️  发现旧技能目录：$HERMES_ROOT/skills/arena-agent（2.4.0 起改名为 arena-cli），建议删掉：rm -rf \"$HERMES_ROOT/skills/arena-agent\"" >&2
+fi
 
 if [ -e "$DEST" ]; then
   if [ "$FORCE" -ne 1 ] && [ "$MODE" = "copy" ]; then
@@ -63,8 +68,8 @@ fi
 cat <<EOF
 
 用法（在 Hermes 里）：
-  /arena-agent 帮我调研三家竞品的定价策略
-  /arena-agent --cookies ~/uploads/arena.ai_cookies.txt 你的问题
+  /arena-cli 帮我调研三家竞品的定价策略
+  /arena-cli --cookies ~/uploads/arena.ai_cookies.txt 你的问题
 
 装了 CLI 的话（等价，且功能更全）：
   arena ask "帮我调研三家竞品的定价策略"

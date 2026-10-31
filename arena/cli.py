@@ -113,7 +113,7 @@ def _add_global(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     g.add_argument("--yes", action="store_true", default=S, help="确认执行 high-risk-write 操作")
     g.add_argument("--no-wait", action="store_true", default=S, help="ask：挂后台跑，立刻返回 job_id")
     g.add_argument("--profile", default=S, help="使用哪个 profile（默认 default）")
-    g.add_argument("--config", default=S, help="配置文件路径（默认 ~/.arena-agent/config.json）")
+    g.add_argument("--config", default=S, help="配置文件路径（默认 ~/.arena-cli/config.json）")
     g.add_argument("--base-url", default=S, help="站点根地址（默认 https://arena.ai）")
     g.add_argument("--timeout", type=float, default=S, help="等待 Agent 完成的上限秒数")
     g.add_argument("--stable", type=float, default=S, help="文本稳定多少秒算完成")
@@ -190,7 +190,7 @@ def build_parser() -> Parser:
     ci.add_argument("path")
     ci.add_argument("--force", action="store_true", help="（兼容旧脚本）等同 --yes")
     ce = _sub(csub, "cookies.export", "导出当前会话 cookies", "", common)
-    ce.add_argument("--out", help="输出路径（默认 ~/.arena-agent/cookies.json）")
+    ce.add_argument("--out", help="输出路径（默认 ~/.arena-cli/cookies.json）")
     _sub(csub, "cookies.show", "查看 cookie 清单（只显示名字，不显示值）", "", common)
 
     # ---- chat ----

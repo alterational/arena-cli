@@ -1,19 +1,35 @@
-# arena-agent-browser
+# arena-cli
 
-用真实浏览器（Playwright / browser-use 同款 Chromium）驱动 **https://arena.ai/agent** 的技能包：
+用真实浏览器（Playwright / browser-use 同款 Chromium）驱动 **https://arena.ai/agent** 的命令行工具 + Hermes 技能：
 
 > 打开页面 → 登录并**记住 cookies** → 把用户内容写进 Agent 输入框 → 提交 → 等 Agent 执行完 → 取回回答 → 转发给用户
 
-本目录就是一个 **Hermes 技能**（name: `arena-agent`），装进 `~/.hermes/skills/` 后自动成为斜杠命令：
+## 名字只有一个：arena-cli
+
+| 东西 | 叫法 | 说明 |
+| --- | --- | --- |
+| GitHub 仓库 / PyPI 包 | **`arena-cli`** | `pip install -e .` 装的就是它 |
+| 命令 | **`arena`** | `<命令> <子命令>`，如 `arena ask`、`arena workspace list` |
+| Hermes 技能 | **`arena-cli`** | 装到 `~/.hermes/skills/arena-cli/`，斜杠命令 `/arena-cli` |
+| 数据目录 | **`~/.arena-cli/`** | `config.json` / `state.json` / `prof/` / `jobs/`（`ARENA_HOME` 可覆盖） |
+
+> 2.4.0 之前叫 `arena-agent`（技能目录 `skills/arena-agent`、数据目录 `~/.arena-agent`）。
+> 数据目录在**首次运行 `arena` 时自动迁移**：新目录不存在就整个改名，已经存在就逐项合并
+> （缺的文件搬过去，同名文件留 mtime 更新的那个），登录态 / 配置 / 浏览器 profile 都不丢；
+> 显式设置 `ARENA_HOME` 时不迁移。技能目录请重装并删掉旧的：
+> `./install.sh && rm -rf ~/.hermes/skills/arena-agent`。
+
+装成 Hermes 技能后就是个斜杠命令：
 
 ```bash
-./install.sh          # 安装到 ~/.hermes/skills/arena-agent
-/arena-agent 帮我调研三家竞品的定价策略          # 在 Hermes 里直接这样用
+./install.sh          # 安装到 ~/.hermes/skills/arena-cli
+/arena-cli 帮我调研三家竞品的定价策略     # 在 Hermes 里直接这样用
 ```
 
 - `SKILL.md`：技能定义（frontmatter + When to Use / Quick Reference / Procedure / Pitfalls / Verification）
-- `scripts/arena_ask.py`：**直接调用入口** —— 一句话进，回答正文出（stdout 可直接转发）
-- `scripts/arena_agent.py`：确定性引擎（登录 / 提问 / 会话管理 / cookies 导入导出）
+- `arena/`：CLI 实现（`arena` 命令的全部子命令）
+- `scripts/arena_ask.py`：**Hermes 技能入口** —— 一句话进，回答正文出（stdout 可直接转发）
+- `scripts/arena_agent.py`：兼容旧入口（转发到引擎）
 - `snippets/*.js`：只有 `browser_exec`（纯 JS）时的等价实现
 - `references/troubleshooting.md`：DOM 结构、选择器、错误码维护手册
 
@@ -25,11 +41,11 @@ cd arena-cli
 
 pip install -r requirements.txt && python -m playwright install chromium   # 依赖
 pip install -e .            # 得到 `arena` 命令（也可以 ./bin/arena 免安装跑）
-./install.sh                # 装成 Hermes 技能（自动装到 ~/.hermes/skills/arena-agent）
+./install.sh                # 装成 Hermes 技能（自动装到 ~/.hermes/skills/arena-cli）
 ```
 
-仓库名（`arena-cli`）和技能名（`arena-agent`）故意不同：仓库是「CLI + 技能」的完整项目，
-`install.sh` 总会把技能装成 `~/.hermes/skills/arena-agent/`，所以斜杠命令始终是 `/arena-agent`。
+装完这一套，**仓库名 = 包名 = 技能名 = `arena-cli`**，命令是 `arena`，数据在 `~/.arena-cli/`，
+五个地方一个口径。
 
 ## arena CLI（命令体系）
 
@@ -180,7 +196,7 @@ arena schema                               # 全部命令一览
 而不是把整页文本差分当成回答 —— 曾经真的抽出过 `"Agent"` 这种控件文案。
 
 **5. 后台任务**：`arena ask --no-wait` 立刻返回 `job_id`，任务在后台跑，
-`arena jobs {list,status,result,logs,cancel}` 管理结果。状态落在 `~/.arena-agent/jobs/<job_id>/`，
+`arena jobs {list,status,result,logs,cancel}` 管理结果。状态落在 `~/.arena-cli/jobs/<job_id>/`，
 进程死掉会被识别为 `stale`（不会永远 running）。
 
 `arena --help` 顶部就是给 agent 的 **AGENT QUICKSTART**，示例按「最短路径 → 结构化 → 自省」排。
@@ -188,14 +204,14 @@ arena schema                               # 全部命令一览
 **退出码**（脚本可判断）：`0` 成功 · `1` 一般错误 · `2` 需要登录 · `3` 发送失败 · `4` 超时 ·
 `5` 页面改版 · `6` 人机校验 · `7` 被限流（`create-chat` 429）· `64` 用法错误（argparse 默认的 2 会和"需要登录"撞车，已改掉）
 
-**配置与 profile**：配置在 `~/.arena-agent/config.json`；一个 profile = 一套会话
-（`~/.arena-agent/state.json` + `prof/` 是 default，其它在 `~/.arena-agent/profiles/<名>/`）。
+**配置与 profile**：配置在 `~/.arena-cli/config.json`；一个 profile = 一套会话
+（`~/.arena-cli/state.json` + `prof/` 是 default，其它在 `~/.arena-cli/profiles/<名>/`）。
 优先级：命令行 flag > 环境变量（`ARENA_HOME` / `ARENA_PROFILE` / `ARENA_BASE_URL` / `NO_COLOR`）> 配置文件 > 内置默认。
 
 ## 装成 Hermes 技能（斜杠命令）
 
 ```bash
-./install.sh                 # 复制到 ~/.hermes/skills/arena-agent
+./install.sh                 # 复制到 ~/.hermes/skills/arena-cli
 ./install.sh --link          # 或软链（改代码即时生效，开发用）
 HERMES_HOME=~/work/.hermes ./install.sh   # 装到指定 profile
 python3 scripts/verify_skill.py           # 规范自检（frontmatter / 章节 / 脚本引用）
@@ -204,8 +220,8 @@ python3 scripts/verify_skill.py           # 规范自检（frontmatter / 章节 
 装好后每个技能自动变成斜杠命令，参数就是用户原话：
 
 ```text
-/arena-agent 帮我调研三家竞品的定价策略
-/arena-agent --cookies ~/uploads/arena.ai_cookies.txt 用这份 cookies 提问
+/arena-cli 帮我调研三家竞品的定价策略
+/arena-cli --cookies ~/uploads/arena.ai_cookies.txt 用这份 cookies 提问
 ```
 
 技能里声明的入口（SKILL.md 用 `${HERMES_SKILL_DIR}` 模板变量，agent 拿到的就是绝对路径）：
@@ -266,11 +282,11 @@ python scripts/arena_agent.py check                                  # 会话是
 ## 目录
 
 ```
-arena-agent-skill/
-├── SKILL.md                  # 技能定义（Hermes 加载这个 → /arena-agent）
+arena-cli/
+├── SKILL.md                  # 技能定义（Hermes 加载这个 → /arena-cli）
 ├── install.sh                # 装进 ~/.hermes/skills/（--force / --link）
 ├── README.md
-├── config.example.json       # 选择器/行为参数默认值，放到 ~/.arena-agent/config.json 生效
+├── config.example.json       # 选择器/行为参数默认值，放到 ~/.arena-cli/config.json 生效
 ├── requirements.txt
 ├── pyproject.toml            # pip install -e . → 得到 `arena` 命令
 ├── bin/arena                 # 免安装启动器（python -m arena）
@@ -351,6 +367,6 @@ tests/run_all.sh
 
 ## 安全
 
-- `~/.arena-agent/state.json` 就是账号凭证，脚本已设为 `600`；**不要**提交到 git、不要贴到聊天里。
+- `~/.arena-cli/state.json` 就是账号凭证，脚本已设为 `600`；**不要**提交到 git、不要贴到聊天里。
 - 登录密码不经过本技能：走的是邮箱 magic link / 一次性验证码。
 - 只在用户本人授权下操作其账号，遵守目标站点条款与频率限制；建议串行、低频使用。

@@ -78,9 +78,13 @@ def _check_config(ctx) -> tuple[bool, str, str]:
 
 
 def _check_skill(ctx) -> tuple[bool, str, str]:
-    target = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")) / "skills" / "arena-agent"
+    root = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")) / "skills"
+    target = root / "arena-cli"
     if target.exists():
         return True, f"已装在 {target}", ""
+    legacy = root / "arena-agent"                       # 2.3.x 之前装的名字
+    if legacy.exists():
+        return False, f"只找到旧名字的技能目录 {legacy}", "./install.sh（然后删掉旧的 skills/arena-agent）"
     return False, "未安装为 Hermes 技能", "./install.sh"
 
 

@@ -1,4 +1,4 @@
-"""arena config list|get|set|unset|path —— 读写 ~/.arena-agent/config.json。"""
+"""arena config list|get|set|unset|path —— 读写 ~/.arena-cli/config.json。"""
 
 from __future__ import annotations
 

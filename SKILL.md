@@ -1,5 +1,5 @@
 ---
-name: arena-agent
+name: arena-cli
 description: 把用户的话交给 arena.ai/agent 执行，取回 Agent 的回答（支持上传 cookies 文件）
 version: 2.1.0
 author: taozi
@@ -12,7 +12,7 @@ metadata:
     config:
       - key: arena.state_file
         description: 保存 Arena 登录会话（cookies）的快照文件路径
-        default: "~/.arena-agent/state.json"
+        default: "~/.arena-cli/state.json"
         prompt: Arena 会话快照路径
       - key: arena.timeout
         description: 等待 Agent 执行完成的最长秒数
@@ -111,7 +111,7 @@ python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
 | `❌ TIMEOUT` | 超过等待上限还在跑 | 加 `--timeout 1800`，或把 `url` 交给用户自己看 |
 | `❌ RATE_LIMITED` | Arena 限流（`create-chat` 返回 429，本账号请求过多/额度用尽） | **别重试**：告诉用户"这个账号被临时限流了，等几分钟再试"；要立刻继续就换一份 cookies（`arena profile create work --from <cookies> --yes`） |
 | `❌ UI_CHANGED` + 用 `--chat` 时 | 会话页底部的「Was this task successful?」反馈卡顶掉了输入框 | 已自动关闭（Esc / ×）；仍失败就 `--headed` 看一眼 |
-| `❌ UI_CHANGED` | 页面改版，选择器失效 | 见 `references/troubleshooting.md`，改 `~/.arena-agent/config.json` |
+| `❌ UI_CHANGED` | 页面改版，选择器失效 | 见 `references/troubleshooting.md`，改 `~/.arena-cli/config.json` |
 | `❌ SEND_FAILED` | 消息没提交 | 重试一次；再失败用 `--headed` 观察 |
 | `❌ BAD_INPUT` | cookies 文件格式不认识 / 没给内容 | 支持 Netscape `cookies.txt`、EditThisCookie JSON、Playwright storage_state |
 

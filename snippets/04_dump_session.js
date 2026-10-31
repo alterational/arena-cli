@@ -3,7 +3,7 @@
  *
  * ⚠️ 重要：arena.ai 的登录 cookie 是 httpOnly 的，document.cookie 读不到。
  *    所以"记住 cookies"请优先用 Python 脚本（Playwright 的 storage_state 能拿到 httpOnly）：
- *        python scripts/arena_agent.py login       # 保存 ~/.arena-agent/state.json
+ *        python scripts/arena_agent.py login       # 保存 ~/.arena-cli/state.json
  *        python scripts/arena_agent.py export-cookies --out cookies.json
  *    本脚本只导出 JS 能看见的那部分（localStorage + 非 httpOnly cookie），
  *    适合 browser_exec 只能执行 JS、无法访问 context.cookies() 的受限环境。

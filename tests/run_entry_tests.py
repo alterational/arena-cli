@@ -10,6 +10,7 @@ run_entry_tests.py —— 验证「Hermes 技能入口」这一层
   5. --max-chars 截断并附会话链接
   6. install.sh 把技能装进 HERMES_HOME，装完 verify_skill.py 仍然合规
   7. SKILL.md frontmatter/章节合规（scripts/verify_skill.py）
+  8. 数据目录从 ~/.arena-agent 迁到 ~/.arena-cli（只做一次，登录态不丢）
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ def main() -> int:
     check("附了会话链接", "http" in out, out[-160:])
 
     # ---------- 5. stdin ----------
-    print("\n[5] stdin 输入（/arena-agent 后面不写参数时）")
+    print("\n[5] stdin 输入（/arena-cli 后面不写参数时）")
     r = run([*common, "--profile-dir", str(tmp / "p1"), "-"], stdin="来自标准输入的问题")
     check("stdin 生效", r.returncode == 0 and "来自标准输入的问题" in r.stdout, r.stdout[:200])
 
@@ -105,7 +106,7 @@ def main() -> int:
     fake_home = tmp / "hermes_home"
     env = {**os.environ, "HERMES_HOME": str(fake_home)}
     r = subprocess.run(["bash", str(ROOT / "install.sh")], capture_output=True, text=True, env=env)
-    dest = fake_home / "skills" / "arena-agent"
+    dest = fake_home / "skills" / "arena-cli"
     check("退出码 = 0", r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
     check("SKILL.md 已就位", (dest / "SKILL.md").exists())
     check("入口脚本已就位", (dest / "scripts" / "arena_ask.py").exists())
@@ -124,11 +125,63 @@ def main() -> int:
     text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     import yaml  # noqa: WPS433
     fm = yaml.safe_load(text.split("---", 2)[1])
-    check("name = arena-agent（即 /arena-agent）", fm.get("name") == "arena-agent", str(fm.get("name")))
+    check("name = arena-cli（即 /arena-cli）", fm.get("name") == "arena-cli", str(fm.get("name")))
     check("声明了 requires_toolsets: terminal",
           "terminal" in (fm.get("metadata", {}).get("hermes", {}).get("requires_toolsets") or []))
     check("description 简短（<= 60）", len(fm.get("description", "")) <= 60,
           f"{len(fm.get('description', ''))} 字符")
+
+    # ---------- 8. 数据目录迁移 ----------
+    print("\n[8] ~/.arena-agent → ~/.arena-cli 迁移")
+    mig = Path(tmp) / "mig"
+
+    def migrate(home: Path, code: str = "from arena.config import arena_home; print(arena_home())") -> str:
+        env2 = {"HOME": str(home), "PATH": os.environ.get("PATH", "")}
+        return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                              env=env2, cwd=str(ROOT)).stdout.strip()
+
+    # 8a. 新目录不存在 → 整目录改名，state.json 原样带走
+    (mig / ".arena-agent").mkdir(parents=True)
+    (mig / ".arena-agent" / "state.json").write_text('{"cookies": 1}', encoding="utf-8")
+    out = migrate(mig)
+    check("改了名：返回 ~/.arena-cli", out.endswith(".arena-cli"), out)
+    check("state.json 跟着搬过去", (mig / ".arena-cli" / "state.json").read_text() == '{"cookies": 1}')
+    check("旧目录消失", not (mig / ".arena-agent").exists())
+    check("写了迁移标记", (mig / ".arena-cli" / ".migrated-from-arena-agent").exists())
+
+    # 8b. 新目录已存在（先跑过别的命令）→ 逐项合并，缺的搬过去、同名留更新的
+    mig2 = Path(tmp) / "mig2"
+    (mig2 / ".arena-cli" / "jobs").mkdir(parents=True)
+    (mig2 / ".arena-cli" / "jobs" / "j.json").write_text("{}", encoding="utf-8")
+    (mig2 / ".arena-cli" / "config.json").write_text('{"new": true}', encoding="utf-8")
+    os.utime(mig2 / ".arena-cli" / "config.json", (1, 1))          # 目标里的更旧
+    (mig2 / ".arena-agent" / "prof" / "Default").mkdir(parents=True)
+    (mig2 / ".arena-agent" / "state.json").write_text('{"cookies": 2}', encoding="utf-8")
+    (mig2 / ".arena-agent" / "config.json").write_text('{"old": true}', encoding="utf-8")
+    (mig2 / ".arena-agent" / "prof" / "Default" / "Cookies").write_text("c", encoding="utf-8")
+    migrate(mig2)
+    check("合并后 state.json 到位", (mig2 / ".arena-cli" / "state.json").exists())
+    check("已有的 jobs/ 没被冲掉", (mig2 / ".arena-cli" / "jobs" / "j.json").exists())
+    check("缺的 profile 文件搬过去", (mig2 / ".arena-cli" / "prof" / "Default" / "Cookies").exists())
+    check("同名文件留更新的那个", (mig2 / ".arena-cli" / "config.json").read_text() == '{"old": true}',
+          (mig2 / ".arena-cli" / "config.json").read_text())
+
+    # 8c. 迁移只做一次（第二次不再重扫）
+    check("旧目录已搬空并清掉", not (mig2 / ".arena-agent").exists())
+    (mig2 / ".arena-agent").mkdir()
+    (mig2 / ".arena-agent" / "late.json").write_text("x", encoding="utf-8")
+    migrate(mig2)
+    check("只迁一次：后放进旧目录的文件不再搬", not (mig2 / ".arena-cli" / "late.json").exists())
+
+    # 8d. 显式 ARENA_HOME 时不迁移
+    mig3 = Path(tmp) / "mig3"
+    (mig3 / ".arena-agent").mkdir(parents=True)
+    env3 = {"HOME": str(mig3), "ARENA_HOME": str(mig3 / "mine"), "PATH": os.environ.get("PATH", "")}
+    out = subprocess.run([sys.executable, "-c",
+                          "from arena.config import arena_home; print(arena_home())"],
+                         capture_output=True, text=True, env=env3, cwd=str(ROOT)).stdout.strip()
+    check("ARENA_HOME 优先", out == str(mig3 / "mine"), out)
+    check("ARENA_HOME 下不动旧目录", (mig3 / ".arena-agent").exists())
 
     srv.shutdown()
     shutil.rmtree(tmp, ignore_errors=True)

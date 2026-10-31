@@ -47,6 +47,20 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return data, body
 
 
+def git_repo_name(root: Path) -> str | None:
+    """仓库名（origin 的 basename）。本地目录名可以是 clone 时的旧名字，仓库名才作数。"""
+    import subprocess
+    try:
+        url = subprocess.run(["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not url:
+        return None
+    tail = url.rstrip("/").split("/")[-1].split(":")[-1]
+    return tail[:-4] if tail.endswith(".git") else (tail or None)
+
+
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else
                 Path(__file__).resolve().parent.parent).resolve()
@@ -67,10 +81,12 @@ def main() -> int:
             if root.parent.name == "skills":
                 # 装进 skills/ 之后，目录名就是这个技能的身份，必须一致
                 errors.append(f"name={name!r} 与目录名 {root.name!r} 不一致（斜杠命令名来自 name）")
+            elif git_repo_name(root) == name:
+                pass                      # 仓库名 = 技能名，本地 clone 的目录名无所谓
             else:
-                # 源码仓库可以叫别的名字（比如 arena-cli），./install.sh 会装到 skills/<name>/
+                # 源码目录可以改叫别的名字，./install.sh 会装到 skills/<name>/
                 warnings.append(f"目录名 {root.name!r} 与 name={name!r} 不同；"
-                                f"只是仓库名的话没关系，./install.sh 会装到 skills/{name}/")
+                                f"只是本地目录名的话没关系，./install.sh 会装到 skills/{name}/")
 
     desc = str(fm.get("description", "")).strip()
     if not desc:
@@ -127,7 +143,7 @@ def main() -> int:
     for e in errors:
         print(f"  ❌ {e}")
     if not errors:
-        print(f"  ✅ SKILL.md 合规（{root.name}）：name/description/metadata/章节/脚本引用全部通过")
+        print(f"  ✅ SKILL.md 合规（{fm.get("name") or root.name}）：name/description/metadata/章节/脚本引用全部通过")
     else:
         print(f"\n共 {len(errors)} 个错误")
     return 0 if not errors else 1

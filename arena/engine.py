@@ -18,8 +18,8 @@ arena_agent.py — 用「真实浏览器」驱动 https://arena.ai/agent
 
 常用参数：
   --base-url https://arena.ai      目标站点（自测时可指向 mock 服务）
-  --profile-dir ~/.arena-agent/prof   浏览器用户目录（持久化，最稳的"记住登录"）
-  --state-file  ~/.arena-agent/state.json  会话快照（cookies + localStorage，可移植）
+  --profile-dir ~/.arena-cli/prof   浏览器用户目录（持久化，最稳的"记住登录"）
+  --state-file  ~/.arena-cli/state.json  会话快照（cookies + localStorage，可移植）
   --headed                         显示浏览器窗口（调试 / 手动过验证码时用）
   --json / --text / --markdown     输出格式
 
@@ -62,7 +62,7 @@ except ImportError:  # 没装 playwright 时，CLI 仍要能跑 doctor/config/co
         pass
 
 HOME = Path.home()
-DEFAULT_DIR = HOME / ".arena-agent"
+DEFAULT_DIR = HOME / ".arena-cli"
 
 # --------------------------------------------------------------------------------------
 # 默认配置：所有选择器都可以在 config.json 里覆盖，页面改版时只改配置、不改代码
@@ -202,7 +202,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 
 def load_config(explicit: Optional[str], overrides: dict[str, Any]) -> dict[str, Any]:
-    """默认配置 <- /home/user/.arena-agent/config.json <- --config 文件 <- 命令行覆盖"""
+    """默认配置 <- /home/user/.arena-cli/config.json <- --config 文件 <- 命令行覆盖"""
     cfg = dict(DEFAULT_CONFIG)
     for path in [DEFAULT_DIR / "config.json", Path(explicit) if explicit else None]:
         if path and Path(path).exists():
@@ -1628,8 +1628,8 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
     S = argparse.SUPPRESS
     p.add_argument("--config", default=S, help="配置文件路径（JSON，覆盖默认选择器）")
     p.add_argument("--base-url", default=S, help="站点根地址，默认 https://arena.ai")
-    p.add_argument("--profile-dir", default=S, help="浏览器用户目录（默认 ~/.arena-agent/prof）")
-    p.add_argument("--state-file", default=S, help="会话快照文件（默认 ~/.arena-agent/state.json）")
+    p.add_argument("--profile-dir", default=S, help="浏览器用户目录（默认 ~/.arena-cli/prof）")
+    p.add_argument("--state-file", default=S, help="会话快照文件（默认 ~/.arena-cli/state.json）")
     p.add_argument("--cookies", default=S,
                    help="直接用一份 cookies 文件（Netscape cookies.txt / JSON），先导入再执行命令")
     p.add_argument("--headed", action="store_true", default=S, help="显示浏览器窗口（过验证码/调试）")
@@ -1675,7 +1675,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("export-cookies", parents=[common], help="导出当前会话 cookies")
     e.add_argument("--cookies-out", default=None,
-                   help="导出路径（默认 ~/.arena-agent/cookies.json；注意别和 --out 混用）")
+                   help="导出路径（默认 ~/.arena-cli/cookies.json；注意别和 --out 混用）")
 
     i = sub.add_parser("import-cookies", parents=[common], help="导入浏览器导出的 cookies JSON")
     i.add_argument("path", help="cookies JSON 文件（EditThisCookie / storage_state 格式）")
