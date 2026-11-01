@@ -53,6 +53,10 @@
    所以「消息没了 + 落地页」必须判定为失败，绝不能把整页文本差分当成回答（曾经抽出过 `"Agent"` 这种控件文案）。
    现在的做法：监听 `create-chat` 的响应状态 + 检测「对话区消失」，报 `RATE_LIMITED`（退出码 7）。
 
+## 会话 URL 与续聊
+- agent 会话每条都是独立地址：`https://arena.ai/agent/<chat_id>`，chat_id 即 `arena chat list` 里的 ID（UUID 格式）。`scripts/arena_agent.py` **不支持 --chat**，它每次都开新落地页（新会话）；要续上下文必须用 `arena ask --chat <chat_id|last|序号>`，引擎会真正 goto `/agent/<chat_id>` 再发消息。
+- 直接用 agent 脚本"接着问"不会带历史——表现为重复上一题的回答。
+
 ## 多轮对话（`--chat`）
 
 `arena ask --chat <chat_id|URL|last|序号>` 会先 `goto /agent/<id>`，再发新消息。
