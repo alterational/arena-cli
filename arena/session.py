@@ -1,4 +1,4 @@
-"""打开浏览器会话的小工具：统一日志行为、统一异常包装。"""
+"""Helpers for opening browser sessions: unified logging behavior and unified exception wrapping."""
 
 from __future__ import annotations
 
@@ -9,16 +9,16 @@ from typing import Iterator
 
 from .engine import Session, SkillError, EXIT_CODES
 
-# 用户看到的一句话建议（比原始报错有用）
+# One-line suggestions shown to users (more useful than raw errors)
 HINTS: dict[str, str] = {
-    "LOGIN_REQUIRED": "会话已失效：`arena cookies import <cookies 文件>` 更新登录态，或 `arena login --email 你的邮箱 --headed`",
-    "LOGIN_FAILED": "邮箱被拒或验证码不对：换真实邮箱域，或直接用 cookies 文件",
-    "LOGIN_TIMEOUT": "没等到登录完成：加长 --wait，或直接用 cookies 文件",
-    "SEND_FAILED": "消息没发出去：稍后重试一次；连续失败用 `arena ask --headed` 观察页面",
-    "TIMEOUT": "Agent 还在跑：`--timeout 1800` 加长等待，或用 `arena chat last` 拿到链接自己看",
-    "UI_CHANGED": "页面结构变了：改 `~/.arena-cli/config.json` 里的 selectors，见 references/troubleshooting.md",
-    "BLOCKED": "撞上 Cloudflare 人机校验：导入新鲜 cookies（含 cf_clearance），或 `--headed` 人工过一次",
-    "BAD_INPUT": "输入不合法：cookies 支持 Netscape cookies.txt / EditThisCookie JSON / storage_state",
+    "LOGIN_REQUIRED": "Session has expired: run `arena cookies import <cookies file>` to update the login session, or `arena login --email your@email.com --headed`",
+    "LOGIN_FAILED": "Email was rejected or the verification code is wrong: use a real email domain, or use a cookies file directly",
+    "LOGIN_TIMEOUT": "Login did not complete in time: increase --wait, or use a cookies file directly",
+    "SEND_FAILED": "Message was not sent: retry once later; if it keeps failing, use `arena ask --headed` to observe the page",
+    "TIMEOUT": "The Agent is still running: use `--timeout 1800` to wait longer, or get the link with `arena chat last` and check it yourself",
+    "UI_CHANGED": "Page structure changed: update the selectors in `~/.arena-cli/config.json`; see references/troubleshooting.md",
+    "BLOCKED": "Hit Cloudflare human verification: import fresh cookies (including cf_clearance), or pass the check manually once with `--headed`",
+    "BAD_INPUT": "Invalid input: cookies may be in Netscape cookies.txt / EditThisCookie JSON / storage_state format",
 }
 
 
@@ -28,7 +28,7 @@ def exit_code(code: str) -> int:
 
 @contextlib.contextmanager
 def open_session(ctx, headed: bool | None = None) -> Iterator[Session]:
-    """按 Context 里的路径开一个会话；非 verbose 时吞掉引擎日志。"""
+    """Open a session using the paths in the Context; in non-verbose mode, swallow the engine logs."""
     cfg = ctx.engine_cfg
     sink: io.StringIO | contextlib.AbstractContextManager = (
         contextlib.nullcontext() if ctx.ui.verbose else contextlib.redirect_stderr(io.StringIO())
@@ -46,16 +46,16 @@ def explain(code: str, message: str = "") -> str:
 
 
 def handle(ctx, exc: SkillError) -> int:
-    """把 SkillError 变成用户可读输出，返回退出码。"""
+    """Turn a SkillError into user-readable output and return the exit code."""
     ctx.ui.fail(exc.code, exc.message, explain(exc.code, exc.message))
     return exit_code(exc.code)
 
 
 def require_browser(ctx) -> None:
-    """早失败：playwright 没装时给出安装命令，别让用户等 30 秒才看到 ImportError。"""
+    """Fail early: if playwright is not installed, print the install command so users do not wait 30 seconds before seeing an ImportError."""
     try:
         import playwright  # noqa: F401
     except ImportError:
         raise SystemExit(
-            "❌ 缺少依赖：pip install playwright && python3 -m playwright install chromium"
+            "❌ Missing dependency: pip install playwright && python3 -m playwright install chromium"
         )

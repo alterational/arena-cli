@@ -1,27 +1,27 @@
-# 登录与 cookies
+# Login and Cookies
 
-这个工具用的是真浏览器，所以「登录」= 让浏览器带上有效的登录 cookie。
-最省事的办法是把浏览器里已有的 cookies 导出来导入，不用重新输密码。
+This tool uses a real browser, so "logging in" means giving the browser a valid login cookie.
+The easiest method is to export cookies from a browser you're already logged into and import them, without re-entering your password.
 
-## 一、导入 cookies 文件（推荐）
+## 1. Import a Cookies File (Recommended)
 
-支持三种格式，**自动识别**，只输出 cookie 名字、绝不打印值；导入后 `state.json` 权限自动 `600`：
+Three formats are supported and **detected automatically**. Only cookie names are printed, never values. After import, `state.json` permissions are automatically set to `600`:
 
-| 格式 | 例子 |
+| Format | Example |
 | --- | --- |
-| **Netscape `cookies.txt`**（curl / 浏览器扩展导出） | `arena.ai<TAB>FALSE<TAB>/<TAB>TRUE<TAB>1827972668<TAB>arena-auth-prod-v1.1<TAB>…` |
-| EditThisCookie / Cookie-Editor JSON 数组 | `[{"name":"arena-auth-prod-v1.1","value":"…","domain":".arena.ai"}]` |
+| **Netscape `cookies.txt`** (exported by curl or a browser extension) | `arena.ai<TAB>FALSE<TAB>/<TAB>TRUE<TAB>1827972668<TAB>arena-auth-prod-v1.1<TAB>…` |
+| EditThisCookie / Cookie-Editor JSON array | `[{"name":"arena-auth-prod-v1.1","value":"…","domain":".arena.ai"}]` |
 | Playwright storage_state | `{"cookies":[…],"origins":[…]}` |
 
 ```bash
-arena cookies import ~/Downloads/arena.ai_cookies.txt   # 导入（= 记住登录）
-arena cookies import ./cookies.txt --profile work        # 导入到指定 profile
-arena check                                             # 会话是否有效 + cookie 体检
-arena cookies show                                      # 清单：只有名字、域、过期时间
-arena cookies export --out backup.json                  # 备份
+arena cookies import ~/Downloads/arena.ai_cookies.txt   # Import (= remember the login)
+arena cookies import ./cookies.txt --profile work        # Import into a specific profile
+arena check                                              # Is the session valid? Plus a cookie health check
+arena cookies show                                       # List: names, domains, and expiry times only
+arena cookies export --out backup.json                   # Back up
 ```
 
-`import` 的输出：
+Output of `import`:
 
 ```json
 { "ok": true, "format": "netscape", "count": 15, "domains": [".arena.ai", "arena.ai"],
@@ -29,45 +29,45 @@ arena cookies export --out backup.json                  # 备份
   "expired_names": [], "has_auth_cookie": true }
 ```
 
-`has_auth_cookie=false` 或 `check` 报 `logged_in=false` → 这份文件没有有效登录态，让用户重新导出。
-文件不像 cookies（比如导出成了 HTML 或空文件）会报 `BAD_INPUT`，退出码 1。
+If `has_auth_cookie=false` or `check` reports `logged_in=false`, the file contains no valid login session; ask the user to export it again.
+If the file does not look like cookies (for example, an HTML page or an empty file was exported), the command fails with `BAD_INPUT` and exit code 1.
 
-## 二、邮箱登录（没有 cookies 文件时）
+## 2. Email Login (When No Cookies File Is Available)
 
 ```bash
-arena login --email you@example.com --headed --wait 300   # 开窗口，方便点邮件里的链接
-arena login --email you@example.com --code 123456         # 或直接给一次性验证码
+arena login --email you@example.com --headed --wait 300   # Opens a window so you can click the link in the email
+arena login --email you@example.com --code 123456         # Or supply the one-time code directly
 ```
 
-密码不经过本工具：流程是邮箱 magic link / 一次性验证码。`--headed` 是为了过 Cloudflare 人机校验。
+Passwords never pass through this tool. The flow uses an email magic link or a one-time code. `--headed` is needed to pass Cloudflare human verification.
 
-## 三、多账号（profile）
+## 3. Multiple Accounts (Profiles)
 
-一个 profile = 一套登录态（`state.json` + 浏览器用户目录）：
+A profile is one login session (`state.json` plus a browser user-data directory):
 
 ```
 ~/.arena-cli/
   state.json  prof/                 # profile "default"
-  profiles/<名>/state.json,prof/    # 其它 profile
+  profiles/<name>/state.json,prof/  # other profiles
 ```
 
 ```bash
 arena profile list
 arena profile create work --from ~/uploads/work_cookies.txt
 arena profile use work
-arena --profile work ask "用工作号跑一下"
-arena profile delete work --yes      # high-risk-write，必须 --yes
+arena --profile work ask "Run this with the work account"
+arena profile delete work --yes      # high-risk-write; requires --yes
 ```
 
-`--profile` / `ARENA_PROFILE` 可临时指定，不用切换。
+`--profile` / `ARENA_PROFILE` can be used to pick a profile temporarily without switching.
 
-## 四、登录态放在哪
+## 4. Where Login Data Is Stored
 
-| 路径 | 内容 |
+| Path | Contents |
 | --- | --- |
-| `~/.arena-cli/state.json` | cookies + storage（**账号凭证**，600，别提交到 git） |
-| `~/.arena-cli/prof/` | 浏览器用户目录（localStorage、缓存） |
-| `~/.arena-cli/config.json` | 配置（代理、超时、选择器覆盖） |
+| `~/.arena-cli/state.json` | Cookies and storage (**account credentials**, mode 600, never commit to git) |
+| `~/.arena-cli/prof/` | Browser user-data directory (localStorage, cache) |
+| `~/.arena-cli/config.json` | Configuration (proxy, timeouts, selector overrides) |
 
-登录 cookie 是 **httpOnly** 的，`document.cookie` 读不到，所以只能用 Playwright 的
-`storage_state` 落盘 —— 这也是 `cookies export` 出来的 JSON 能用、而从控制台复制粘贴不行。
+The login cookie is **httpOnly**, so `document.cookie` cannot read it. It must be saved to disk through Playwright's
+`storage_state`. This is also why the JSON produced by `cookies export` works, while copying and pasting from the console does not.

@@ -1,14 +1,14 @@
-"""极简 jq：够用就行，不引入外部依赖。
+"""Minimal jq: just enough for our needs, with no external dependencies.
 
-支持：
-    .                      整个结果
-    .answer                取字段
-    .data.chats[].title    数组展开后取字段（多个结果逐行输出）
-    .data.chats[0]         下标
-    .items[].name | .[0]   管道
-    .field //              （不支持算术/条件，只做取值）
+Supported:
+    .                      the whole result
+    .answer                get a field
+    .data.chats[].title    get a field after expanding an array (multiple results are printed one per line)
+    .data.chats[0]         index
+    .items[].name | .[0]   pipes
+    .field //              (arithmetic and conditionals are not supported; value lookup only)
 
-输出规则和 jq 接近：字符串直接打印，对象/数组打印 JSON（多个结果逐行）。
+Output rules are close to jq: strings are printed as-is; objects/arrays are printed as JSON (multiple results one per line).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _TOKEN = re.compile(r"\.([A-Za-z_][\w-]*)|\[\s*(\d*)\s*\]")
 
 
 def _walk(value: Any, expr: str) -> list[Any]:
-    """把一段表达式作用到 value 上，返回结果列表（[] 会展开成多个）。"""
+    """Apply an expression to value and return a list of results ([] expands into multiple)."""
     results: list[Any] = [value]
     for match in _TOKEN.finditer(expr):
         name, index = match.group(1), match.group(2)
@@ -56,7 +56,7 @@ def evaluate(expr: str, data: Any) -> list[Any]:
 
 
 def render(expr: str, data: Any) -> str:
-    """返回适合直接 print 的文本。"""
+    """Return text suitable for direct printing."""
     values = evaluate(expr, data)
     if not values:
         return ""

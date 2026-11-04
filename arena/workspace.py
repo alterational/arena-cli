@@ -1,16 +1,16 @@
-"""workspace —— arena.ai 会话工作区（Workspace 面板）的纯逻辑。
+"""workspace — pure logic for the arena.ai conversation workspace (Workspace panel).
 
-页面结构（2026-10 实测，`/agent/<chat_id>` 右侧 Workspace 卡）：
+Page structure (verified 2026-10; the Workspace card on the right side of `/agent/<chat_id>`):
 
     <div class="... max-h-[400px] ...">
-      Workspace                        47B/128.0MB   2/10K files     [⬇ 整个工作区]
+      Workspace                        47B/128.0MB   2/10K files     [⬇ Entire workspace]
       ▸ uploads/            button[aria-label="Collapse uploads folder"]  style="padding-left:8px"
           test_upload.txt   div[role=button][aria-label="test_upload.txt file"]  style="padding-left:24px"
                             └ a[aria-label="Download test_upload.txt"][href="/api/chat/workspace/cas/user/<hash>"][download="test_upload.txt"]
       demo.txt              div[role=button][aria-label="demo.txt file"]  style="padding-left:8px"
 
-层级靠 `padding-left` 表示（8 = 根，24 = 一层，40 = 两层…）；折叠的文件夹子项**不在 DOM 里**，
-所以想列全就得把 "Expand … folder" 逐个点开。
+Nesting is indicated by `padding-left` (8 = root, 24 = one level, 40 = two levels…); child items of collapsed folders are **not in the DOM**,
+so to list everything you must click each "Expand … folder" one at a time.
 """
 
 from __future__ import annotations
@@ -36,10 +36,10 @@ BINARY_SUFFIXES = {
 
 
 def build_paths(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """按 DOM 顺序 + depth 把「文件名」拼成「相对路径」。
+    """Combine file names into relative paths using DOM order and depth.
 
-    输入：`[{"kind": "folder"|"file", "name": ..., "depth": 0, "href": ...}]`
-    输出：同样的条目，但多一个 `path`（如 `uploads/test_upload.txt`）。
+    Input: `[{"kind": "folder"|"file", "name": ..., "depth": 0, "href": ...}]`
+    Output: the same entries, with an additional `path` (e.g. `uploads/test_upload.txt`).
     """
     stack: list[str] = []
     out: list[dict[str, Any]] = []
@@ -65,7 +65,7 @@ def files_only(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def normalize_ref(ref: str) -> str:
-    """把用户写的路径规整一下：去掉开头的 `./`、`/`、结尾多余斜杠。"""
+    """Normalize a user-supplied path: strip a leading `./` or `/` and any trailing slashes."""
     ref = (ref or "").strip().replace("\\", "/")
     while ref.startswith("./"):
         ref = ref[2:]
@@ -74,11 +74,11 @@ def normalize_ref(ref: str) -> str:
 
 
 def find_file(entries: Iterable[dict[str, Any]], ref: str) -> Optional[dict[str, Any]]:
-    """按路径找文件，容忍几种常见写法：
+    """Find a file by path, tolerating several common forms:
 
-    * `uploads/test_upload.txt`（完整路径，最推荐）
-    * `test_upload.txt`（只给文件名：唯一时直接用）
-    * `*/test_upload.txt`（通配前缀）
+    * `uploads/test_upload.txt` (full path; most recommended)
+    * `test_upload.txt` (file name only: used directly when unique)
+    * `*/test_upload.txt` (wildcard prefix)
     """
     ref = normalize_ref(ref)
     files = files_only(entries)
@@ -130,7 +130,7 @@ def human_size(n: Optional[int]) -> str:
 
 
 def safe_target(out: Optional[str], name: str, cwd: Optional[Path] = None) -> Path:
-    """`--out` 可以是文件、也可以是已存在的目录（那就拼上文件名）。"""
+    """`--out` can be a file or an existing directory (in which case the file name is appended)."""
     base = Path(cwd or Path.cwd())
     if not out:
         return base / Path(name).name
@@ -147,7 +147,7 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def parse_stats(stat_lines: Iterable[str]) -> dict[str, Any]:
-    """从面板头部的 `47B/128.0MB`、`2/10K files` 两行里抠出数字（抠不到就留空）。"""
+    """Extract the numbers from the `47B/128.0MB` and `2/10K files` lines in the panel header (leave blank if not found)."""
     used = total = files = None
     files_label: Optional[str] = None
     file_limit: Optional[str] = None

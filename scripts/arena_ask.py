@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Hermes 技能入口（保持「一句话进、回答正文出」的契约）。
+"""Hermes skill entry point (keeps the "one sentence in, answer body out" contract).
 
-    python3 scripts/arena_ask.py "你的问题"
-    python3 scripts/arena_ask.py --cookies ~/uploads/arena.ai_cookies.txt "你的问题"
+    python3 scripts/arena_ask.py "your question"
+    python3 scripts/arena_ask.py --cookies ~/uploads/arena.ai_cookies.txt "your question"
 
-成功：stdout 只有回答正文，退出码 0。
-失败：stdout 一行 `❌ <CODE>: <下一步做什么>`，退出码 2/3/4/5/6。
+Success: stdout contains only the answer body; exit code 0.
+Failure: stdout has one line `❌ <CODE>: <what to do next>`; exit code 2/3/4/5/6.
 
-现代写法（等价）：`arena ask "你的问题"`
+Modern equivalent: `arena ask "your question"`
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ from arena.session import explain                                        # noqa:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="arena_ask", description="把一句话交给 arena.ai/agent，打印回答。")
-    p.add_argument("prompt", nargs="*", help="要发送的内容；`-` 或省略表示读 stdin")
-    p.add_argument("--cookies", help="cookies 文件，先导入再提问")
-    p.add_argument("--json", action="store_true", help="输出结构化 JSON")
-    p.add_argument("--max-chars", type=int, default=0, help="长回答截断（0 = 不截断）")
+    p = argparse.ArgumentParser(prog="arena_ask", description="Send one sentence to arena.ai/agent and print the answer.")
+    p.add_argument("prompt", nargs="*", help="Content to send; `-` or omitting it reads from stdin")
+    p.add_argument("--cookies", help="Cookies file; import it first, then ask")
+    p.add_argument("--json", action="store_true", help="Output structured JSON")
+    p.add_argument("--max-chars", type=int, default=0, help="Truncate long answers (0 = no truncation)")
     p.add_argument("--timeout", type=float)
     p.add_argument("--stable", type=float)
-    p.add_argument("--profile", help="使用哪个 profile")
+    p.add_argument("--profile", help="Which profile to use")
     p.add_argument("--config")
     p.add_argument("--base-url")
     p.add_argument("--state-file")
@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     prompt = " ".join(args.prompt) if args.prompt and args.prompt != ["-"] else sys.stdin.read()
     prompt = (prompt or "").strip()
     if not prompt:
-        print("❌ BAD_INPUT: 没有收到要发给 Agent 的内容（用法：arena ask \"你的问题\"）")
+        print("❌ BAD_INPUT: No content was received to send to the Agent (usage: arena ask \"your question\")")
         return 1
 
     home = arena_home()
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                               "hint": explain(exc.code, exc.message)}, ensure_ascii=False, indent=2))
         else:
             print(f"❌ {exc.code}: {explain(exc.code, exc.message)}")
-            print(f"  详情：{exc.message}", file=sys.stderr)
+            print(f"  Details: {exc.message}", file=sys.stderr)
         return EXIT_CODES.get(exc.code, 1)
     finally:
         if args.verbose:
@@ -93,9 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     answer = result.get("answer", "")
     if args.max_chars and len(answer) > args.max_chars:
         answer = answer[: args.max_chars].rstrip() + \
-            f"\n\n…（已截断，共 {len(result.get('answer', ''))} 字）"
+            f"\n\n…(truncated; {len(result.get('answer', ''))} characters in total)"
         if result.get("url"):
-            answer += f"\n完整内容：{result['url']}"
+            answer += f"\nFull content: {result['url']}"
     if args.json:
         import json
         result["answer"] = answer

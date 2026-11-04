@@ -1,18 +1,18 @@
 /**
- * 03_login_email.js —— 处理 arena.ai 的登录弹窗（邮箱 magic-link 那条路）
+ * 03_login_email.js — handles the arena.ai login dialog (the email magic-link path)
  *
- * 触发顺序（实测）：打开 /agent → Terms 弹窗（点 Agree）→ 点发送 → "Log In or Create Account"
- * → 填邮箱 → Continue with email → 去邮箱点登录链接（或填验证码）。
+ * Trigger sequence (verified): open /agent → Terms dialog (click Agree) → click send → "Log In or Create Account"
+ * → enter email → Continue with email → open the login link in the email (or enter the verification code).
  *
- * 三步都写在一个文件里，用 STEP 控制：
- *   STEP = 'terms'  只点 Agree
- *   STEP = 'trigger' 发一条试探消息，把登录弹窗逼出来（会先自动点 Agree）
- *   STEP = 'email'  填邮箱并提交
+ * All three steps live in one file, controlled by STEP:
+ *   STEP = 'terms'  only clicks Agree
+ *   STEP = 'trigger' sends a probe message to force out the login dialog (clicks Agree automatically first)
+ *   STEP = 'email'  enters the email and submits
  */
 (() => {
   const STEP = 'terms';                 // 'terms' | 'trigger' | 'email'
-  const EMAIL = '__EMAIL__';            // ← 收信邮箱
-  const PROBE = 'hi';                   // 试探消息内容
+  const EMAIL = '__EMAIL__';            // ← the inbox that will receive the email
+  const PROBE = 'hi';                   // probe message content
   const R = (o) => JSON.stringify(o);
 
   const visible = el => !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
@@ -32,7 +32,7 @@
     if (STEP === 'terms') return R({ ok: true, step: 'terms', note: 'no terms dialog' });
   }
 
-  // ---------- 触发登录弹窗 ----------
+  // ---------- Trigger the login dialog ----------
   if (STEP === 'trigger') {
     const d = dialog();
     if (d && /Log In or Create Account/i.test(d.innerText)) return R({ ok: true, step: 'trigger', already: true });
@@ -44,10 +44,10 @@
     const send = document.querySelector('button[aria-label="Send message"]');
     if (!send) return R({ ok: false, error: 'SEND_BUTTON_NOT_FOUND' });
     send.click();
-    return R({ ok: true, step: 'trigger', note: '待弹窗出现后再调用一次本脚本确认' });
+    return R({ ok: true, step: 'trigger', note: 'After the dialog appears, call this script once more to confirm' });
   }
 
-  // ---------- 提交邮箱 ----------
+  // ---------- Submit the email ----------
   if (STEP === 'email') {
     const d = dialog();
     if (!d) return R({ ok: false, error: 'LOGIN_DIALOG_NOT_FOUND' });
@@ -62,7 +62,7 @@
     const txt = d.innerText;
     return R({
       ok: true, step: 'email',
-      note: '去邮箱点登录链接。若页面出现验证码输入框，用 snippets/03b_fill_code.js 填。',
+      note: 'Check your inbox for the login link. If a verification-code input appears on the page, fill it with snippets/03b_fill_code.js.',
       warn: /not permitted|invalid/i.test(txt) ? 'EMAIL_REJECTED' : null,
     });
   }

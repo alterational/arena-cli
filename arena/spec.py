@@ -1,6 +1,6 @@
-"""`arena schema` —— 给 agent 自省用的命令说明（对齐 lark-cli schema 的思路）。
+"""`arena schema` — command descriptions for agent introspection (follows the approach of lark-cli schema).
 
-不另外维护一份文档：直接从 argparse 的 parser 反射出参数、类型、默认值、风险等级。
+No separate documentation is maintained: parameters, types, defaults, and risk levels are reflected directly from the argparse parser.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 TYPE_NAMES = {None: "string", str: "string", int: "int", float: "float", bool: "bool"}
 
-# 这些全局 flag 每条命令都能用，schema 里单独列，不塞进每个命令的参数表
+# These global flags work with every command; schema lists them separately instead of repeating them in each command's parameter table
 GLOBAL_FLAGS = {
     "-h", "--help", "--json", "--format", "--jq", "-q", "--quiet", "-v", "--verbose",
     "--no-color", "--dry-run", "--yes", "--no-wait", "--profile", "--config",
@@ -20,7 +20,7 @@ GLOBAL_FLAGS = {
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
-    for action in parser._actions:  # noqa: SLF001 — argparse 没有公开 API
+    for action in parser._actions:  # noqa: SLF001 — argparse has no public API
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
             return action.choices  # type: ignore[return-value]
     return {}
@@ -32,7 +32,7 @@ def available_commands(parser: argparse.ArgumentParser) -> list[str]:
 
 def find(parser: argparse.ArgumentParser, path: list[str]
          ) -> tuple[Optional[argparse.ArgumentParser], list[str]]:
-    """按路径找到子 parser；返回 (parser, 已走通的路径)。"""
+    """Find the subparser for a path; returns (parser, the path that was successfully walked)."""
     current = parser
     walked: list[str] = []
     for name in path:
@@ -62,7 +62,7 @@ def _params(parser: argparse.ArgumentParser, risk: str) -> list[dict[str, Any]]:
                 "flag": flag,
                 "type": kind,
                 "required": bool(action.required),
-                "help": (action.help or "").split("（")[0],
+                "help": (action.help or "").split(" (")[0],
             }
             if action.choices:
                 entry["choices"] = list(action.choices)
@@ -77,7 +77,7 @@ def _params(parser: argparse.ArgumentParser, risk: str) -> list[dict[str, Any]]:
                 "arg": action.dest,
                 "type": "string",
                 "required": not optional,
-                "help": (action.help or "").split("（")[0],
+                "help": (action.help or "").split(" (")[0],
             })
     return params
 
@@ -96,7 +96,7 @@ def describe(parser: argparse.ArgumentParser, path: list[str], risks: dict
         if target else "—",
         "params": _params(target, risk) if target else [],
     }
-    # 把"完整路径"的提示也带上，方便 agent 拼命令
+    # Also include the "full path" hint so agents can assemble commands more easily
     if children:
         out["subcommands"] = sorted(children)
     return out

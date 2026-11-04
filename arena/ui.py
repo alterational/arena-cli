@@ -1,4 +1,4 @@
-"""终端 UI：颜色、键值表、表格、JSON 输出。所有命令都通过它说话。"""
+"""Terminal UI: colors, key-value tables, tables, and JSON output. All commands communicate through it."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, Iterable, Sequence
 
 
 def display_width(text: str) -> int:
-    """中文/全角算 2 列，保证表格在终端里对齐。"""
+    """CJK/full-width characters count as 2 columns so tables stay aligned in the terminal."""
     return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
 
 
@@ -26,7 +26,7 @@ _CODES = {
 
 
 class UI:
-    """--json 时闭嘴只吐 JSON；--quiet 时只留结果；否则给人看的排版。"""
+    """With --json, output only JSON; with --quiet, keep only the result; otherwise, human-readable layout."""
 
     def __init__(self, json_mode: bool = False, color: bool | None = None,
                  quiet: bool = False, verbose: bool = False) -> None:
@@ -37,7 +37,7 @@ class UI:
             color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
         self.color = bool(color)
 
-    # ---- 基础 -------------------------------------------------------------
+    # ---- Basics -------------------------------------------------------------
     def paint(self, text: str, *styles: str) -> str:
         if not self.color or not styles:
             return text
@@ -64,12 +64,12 @@ class UI:
         if self.verbose:
             print(self.paint(f"· {msg}", "grey"), file=sys.stderr)
 
-    # ---- 结构化 -----------------------------------------------------------
+    # ---- Structured -----------------------------------------------------------
     def json(self, data: Any) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
     def emit(self, data: Any, human: str | None = None) -> None:
-        """json 模式吐 JSON，否则吐人话。"""
+        """In json mode, print JSON; otherwise print human-readable text."""
         if self.json_mode:
             self.json(data)
         elif human is not None:
@@ -98,7 +98,7 @@ class UI:
         if title:
             print(self.paint(title, "bold"))
         if not rows:
-            print(self.paint("  (空)", "grey"))
+            print(self.paint("  (empty)", "grey"))
             return
         widths = [display_width(h) for h in headers]
         for row in rows:
@@ -109,7 +109,7 @@ class UI:
         for row in rows:
             print("  " + "  ".join(pad(cell, widths[i]) for i, cell in enumerate(row)).rstrip())
 
-    # ---- 错误 -------------------------------------------------------------
+    # ---- Errors -------------------------------------------------------------
     def fail(self, code: str, message: str, hint: str | None = None) -> None:
         if self.json_mode:
             self.json({"ok": False, "code": code, "error": message, "hint": hint})

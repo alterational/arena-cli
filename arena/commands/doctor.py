@@ -1,4 +1,4 @@
-"""arena doctor / arena version —— 环境体检与版本信息。"""
+"""arena doctor / arena version — environment check and version information."""
 
 from __future__ import annotations
 
@@ -20,18 +20,18 @@ def _check_playwright() -> tuple[bool, str, str]:
         from importlib.metadata import version
         return True, f"playwright {version('playwright')}", ""
     except ImportError:
-        return False, "未安装", "pip install playwright && python3 -m playwright install chromium"
+        return False, "not installed", "pip install playwright && python3 -m playwright install chromium"
     except Exception as exc:  # noqa: BLE001
-        return False, f"异常：{exc}", "重新安装 playwright"
+        return False, f"error: {exc}", "reinstall playwright"
 
 
 def _check_chromium() -> tuple[bool, str, str]:
     cache = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or (Path.home() / ".cache" / "ms-playwright"))
     if not cache.exists():
-        return False, f"没找到 {cache}", "python3 -m playwright install chromium"
+        return False, f"{cache} not found", "python3 -m playwright install chromium"
     hits = [p.name for p in cache.iterdir() if p.name.startswith("chromium")]
     if not hits:
-        return False, "浏览器目录为空", "python3 -m playwright install chromium"
+        return False, "browser directory is empty", "python3 -m playwright install chromium"
     return True, ", ".join(hits[:2]), ""
 
 
@@ -43,37 +43,37 @@ def _check_network(base_url: str, proxy: str = "") -> tuple[bool, str, str]:
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
             resp_ctx = opener.open(req, timeout=8)
-            note = "（经代理）"
+            note = " (via proxy)"
         else:
             resp_ctx = urllib.request.urlopen(req, timeout=6)
             note = ""
         with resp_ctx as resp:
             return True, f"HTTP {resp.status}{note}", ""
     except urllib.error.HTTPError as exc:
-        return True, f"HTTP {exc.code}（能连通）", ""
+        return True, f"HTTP {exc.code} (reachable)", ""
     except Exception as exc:  # noqa: BLE001
-        return False, f"连不上：{str(exc)[:60]}", "检查网络/代理；公司网可能拦 HEAD 请求"
+        return False, f"unreachable: {str(exc)[:60]}", "Check the network / proxy; corporate networks may block HEAD requests"
 
 
 def _check_session(ctx) -> tuple[bool, str, str]:
     path = ctx.paths.state_file
     if not path.exists():
-        return False, f"没有会话（{path}）", "arena cookies import <cookies 文件> 或 arena login"
+        return False, f"no session ({path})", "arena cookies import <cookies file> or arena login"
     try:
         cookies, meta = parse_cookie_file(path)
     except Exception as exc:  # noqa: BLE001
-        return False, f"读不出：{exc}", "重新导入 cookies"
+        return False, f"could not read: {exc}", "re-import the cookies"
     health = summarize_cookies(cookies, ctx.engine_cfg)
     if health["has_auth_cookie"]:
-        return True, f"{health['count']} 条，含 {'/'.join(health['auth_cookie_names'][:2])}", ""
-    return False, f"{health['count']} 条，但没有登录凭证", "重新导出 cookies（要含 arena-auth-*）"
+        return True, f"{health['count']} cookies, including {'/'.join(health['auth_cookie_names'][:2])}", ""
+    return False, f"{health['count']} cookies, but no login credential", "re-export the cookies (must include arena-auth-*)"
 
 
 def _check_config(ctx) -> tuple[bool, str, str]:
     if not ctx.paths.config_file.exists():
-        return True, "未创建（用默认值）", ""
+        return True, "not created (using defaults)", ""
     if ctx.file_cfg.get("_invalid"):
-        return False, "JSON 解析失败", f"修好或删掉 {ctx.paths.config_file}"
+        return False, "JSON parse failed", f"fix or delete {ctx.paths.config_file}"
     return True, str(ctx.paths.config_file), ""
 
 
@@ -81,11 +81,11 @@ def _check_skill(ctx) -> tuple[bool, str, str]:
     root = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")) / "skills"
     target = root / "arena-cli"
     if target.exists():
-        return True, f"已装在 {target}", ""
-    legacy = root / "arena-agent"                       # 2.3.x 之前装的名字
+        return True, f"installed at {target}", ""
+    legacy = root / "arena-agent"                       # Name used before 2.3.x
     if legacy.exists():
-        return False, f"只找到旧名字的技能目录 {legacy}", "./install.sh（然后删掉旧的 skills/arena-agent）"
-    return False, "未安装为 Hermes 技能", "./install.sh"
+        return False, f"only the old skill directory was found: {legacy}", "./install.sh (then delete the old skills/arena-agent)"
+    return False, "not installed as a Hermes skill", "./install.sh"
 
 
 def run_doctor(ctx, args) -> int:
@@ -97,7 +97,7 @@ def run_doctor(ctx, args) -> int:
         ("config", *_check_config(ctx)),
         ("session", *_check_session(ctx)),
         ("profile", True, ctx.paths.profile, ""),
-        ("proxy", True, ctx.get("proxy") or "（未配置，直连）", ""),
+        ("proxy", True, ctx.get("proxy") or "(not configured; direct connection)", ""),
         ("hermes skill", *_check_skill(ctx)),
     ]
     checks = [{"name": n, "ok": ok, "detail": d, "fix": h} for n, ok, d, h in rows]
@@ -109,22 +109,22 @@ def run_doctor(ctx, args) -> int:
         "version": __version__,
         "checks": checks,
         "problems": problems,
-        "hint": ("环境看起来没问题" if healthy else
-                 f"有 {len(problems)} 项需要处理，按 problems[].fix 修（多为依赖/浏览器未装）"),
+        "hint": ("Environment looks fine" if healthy else
+                 f"{len(problems)} item(s) need attention; fix them per problems[].fix (mostly missing dependencies / browser)"),
     }
 
     def human() -> None:
-        ctx.ui.table(["检查项", "结果", "说明"],
+        ctx.ui.table(["check", "result", "details"],
                      [[c["name"], ctx.ui.paint("✓", "green") if c["ok"] else ctx.ui.paint("✗", "red"),
                        c["detail"]] for c in checks],
-                     title=f"arena doctor（v{__version__}）")
+                     title=f"arena doctor (v{__version__})")
         if problems:
             print()
             for p in problems:
                 if p["fix"]:
-                    ctx.ui.warn(f"{p['check']}：{p['fix']}")
+                    ctx.ui.warn(f"{p['check']}: {p['fix']}")
         else:
-            ctx.ui.ok("环境看起来没问题")
+            ctx.ui.ok("Environment looks fine")
 
     ctx.emit(data, human=human)
     return 0 if healthy else 1
@@ -142,7 +142,7 @@ def run_version(ctx, args) -> int:
         "arena": __version__,
         "python": platform.python_version(),
         "platform": sys.platform,
-        "playwright": pw or "未安装",
+        "playwright": pw or "not installed",
         "profile": ctx.paths.profile,
         "state_file": str(ctx.paths.state_file),
         "base_url": ctx.get("base_url"),

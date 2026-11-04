@@ -1,11 +1,11 @@
-"""arena workspace —— 会话工作区：列文件 / 看内容 / 下载。
+"""arena workspace — conversation workspace: list files / view contents / download.
 
-会话页右侧那张 Workspace 卡就是 Agent 干活时产出的文件（也有用户上传件）。这里的三条命令
-都靠浏览器（带着登录态）去点、去读，不猜接口：
+The Workspace card on the right side of the conversation page holds the files the Agent produced (plus user uploads). The three commands here
+all rely on the browser (with the login session) to click and read, without guessing at APIs:
 
-    arena workspace list                 # 列文件（自动展开所有文件夹）
-    arena workspace show demo.txt        # 打印文本内容（stdout 只有内容）
-    arena workspace download demo.txt    # 存到本地（--out 指定路径/目录，--all 打包整个工作区）
+    arena workspace list                 # List files (automatically expands all folders)
+    arena workspace show demo.txt        # Print text contents (stdout contains only the content)
+    arena workspace download demo.txt    # Save locally (--out specifies a path/directory; --all packages the entire workspace)
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _chat_ref(args) -> str | None:
 
 
 def _resolve(session, ref: str | None) -> str | None:
-    """--chat 缺省时用最近一个会话；没有任何历史就退回当前（新）会话。"""
+    """If --chat is omitted, use the most recent conversation; if there is no history at all, fall back to the current (new) conversation."""
     from .ask import resolve_chat
 
     try:
@@ -56,7 +56,7 @@ def _files_payload(listing: dict) -> dict:
         "folders": folders,
         "truncated": listing.get("truncated", False),
         "source": listing.get("source", "dom"),
-        "hint": "arena workspace show <path> 查看内容；arena workspace download <path> 存到本地",
+        "hint": "arena workspace show <path> to view contents; arena workspace download <path> to save locally",
     }
 
 
@@ -68,13 +68,13 @@ def run_list(ctx, args) -> int:
     def human() -> None:
         used = f"{stats.get('used') or '?'}/{stats.get('quota') or '?'}"
         n = f"{data['count']}/{stats.get('file_limit') or '?'} files"
-        rows = [[f["path"], human_size(f.get("size"))] for f in data["files"]] or [["(工作区是空的)", ""]]
-        ctx.ui.table(["path", "大小"], rows,
-                     title=f"Workspace（{used}  {n}）· chat {data['chat_id'] or '-'}")
+        rows = [[f["path"], human_size(f.get("size"))] for f in data["files"]] or [["(workspace is empty)", ""]]
+        ctx.ui.table(["path", "size"], rows,
+                     title=f"Workspace ({used}  {n}) · chat {data['chat_id'] or '-'}")
         if data["source"] == "archive":
-            ctx.ui.info("（文件清单来自「下载工作区」的 zip 包，这个会话的文件树 UI 读不出行）")
+            ctx.ui.info("(The file list comes from the zip package of \"Download workspace\"; this conversation's file-tree UI could not be read row by row)")
         if data["truncated"]:
-            ctx.ui.warn("文件夹太多，只展开了一部分（可加 --no-expand 看顶层）")
+            ctx.ui.warn("Too many folders; only some were expanded (add --no-expand to view the top level)")
         ctx.ui.info(data["hint"])
 
     return ctx.emit(data, human=human)
@@ -96,15 +96,15 @@ def run_show(ctx, args) -> int:
     if not text_ok:
         raise ArenaError(
             "validation", "not_text_file",
-            f"{got['path']} 看起来是二进制文件（{human_size(got['size'])}，{got['content_type'] or '未知类型'}）",
-            f"用 arena workspace download {got['path']} --out <本地路径> 下载后再看",
+            f"{got['path']} appears to be a binary file ({human_size(got['size'])}, {got['content_type'] or 'unknown type'})",
+            f"Download it first with arena workspace download {got['path']} --out <local path>, then view it",
             exit_code=1,
         )
 
     text = data_bytes.decode("utf-8", errors="replace")
     shown = text
     if limit and len(text) > limit:
-        shown = text[:limit].rstrip() + f"\n\n…（已截断，共 {len(text)} 字，可用 --max-chars 0 看全文）"
+        shown = text[:limit].rstrip() + f"\n\n…(truncated; {len(text)} characters in total; use --max-chars 0 to see the full text)"
 
     data = {
         "chat_id": got["chat_id"],
@@ -119,7 +119,7 @@ def run_show(ctx, args) -> int:
     def human() -> None:
         print(shown, end="" if shown.endswith("\n") else "\n")
         if ctx.ui.verbose:
-            print(f"[文件] {got['path']}  {human_size(got['size'])}  sha256={sha256_bytes(data_bytes)[:12]}…",
+            print(f"[file] {got['path']}  {human_size(got['size'])}  sha256={sha256_bytes(data_bytes)[:12]}…",
                   file=__import__("sys").stderr)
 
     return ctx.emit(data, human=human)
@@ -129,9 +129,9 @@ def run_download(ctx, args) -> int:
     download_all = bool(getattr(args, "all", False))
     ref = normalize_ref(getattr(args, "path", "") or "")
     if not download_all and not ref:
-        raise ArenaError("usage", "missing_argument", "要给一个文件路径",
+        raise ArenaError("usage", "missing_argument", "A file path is required",
                          "arena workspace download demo.txt --out ./demo.txt"
-                         "（或 --all 打包整个工作区）", exit_code=64)
+                         "(or use --all to package the entire workspace)", exit_code=64)
 
     with open_session(ctx) as session:
         chat = _resolve(session, _chat_ref(args))
@@ -141,8 +141,8 @@ def run_download(ctx, args) -> int:
     out = safe_target(getattr(args, "out", None), name)
     if out.exists() and not (getattr(args, "yes", False) or getattr(args, "force", False)):
         raise confirmation(
-            f"覆盖本地文件 {out}",
-            f"确认覆盖：arena workspace download … --out {out} --yes；或换个 --out",
+            f"overwrite local file {out}",
+            f"To confirm the overwrite: arena workspace download … --out {out} --yes; or use a different --out",
         )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(got["bytes"])
@@ -153,7 +153,7 @@ def run_download(ctx, args) -> int:
 
     data = {
         "chat_id": got["chat_id"],
-        "path": "（整个工作区）" if download_all else got["path"],
+        "path": "(entire workspace)" if download_all else got["path"],
         "out": str(out),
         "size": got["size"],
         "sha256": sha256_bytes(got["bytes"]),
@@ -161,8 +161,8 @@ def run_download(ctx, args) -> int:
     }
 
     def human() -> None:
-        ctx.ui.ok(f"已保存 {out}（{human_size(data['size'])}）")
-        ctx.ui.kv([("来源", data["path"]),
+        ctx.ui.ok(f"Saved {out} ({human_size(data['size'])})")
+        ctx.ui.kv([("source", data["path"]),
                    ("chat", data["chat_id"] or "-"),
                    ("sha256", data["sha256"][:16] + "…")])
 

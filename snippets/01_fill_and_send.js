@@ -1,13 +1,13 @@
 /**
- * 01_fill_and_send.js —— 把内容写进 arena.ai/agent 的输入框并提交
- * 用法（Hermes browser_exec 执行 JS）：把 PROMPT 换成用户内容后整体执行；
- * 返回 JSON 字符串，形如 {"ok":true,"editor":"...","sent":true}
+ * 01_fill_and_send.js — writes content into the arena.ai/agent input box and submits it
+ * Usage (Hermes browser_exec runs JS): replace PROMPT with the user's content, then run the whole script;
+ * Returns a JSON string such as {"ok":true,"editor":"...","sent":true}
  *
- * 为什么不用 input.value：arena 的输入框是 Tiptap/ProseMirror（contenteditable），
- * 直接改 innerText 不会被 React 状态接管，发送按钮仍是禁用的。必须派发 paste/input 事件。
+ * Why not input.value: arena's input box is Tiptap/ProseMirror (contenteditable);
+ * setting innerText directly is not picked up by React state, so the send button stays disabled. You must dispatch paste/input events.
  */
 (() => {
-  const PROMPT = `__PROMPT__`;           // ← 替换成用户输入（注意转义反引号与 ${}）
+  const PROMPT = `__PROMPT__`;           // ← replace with the user's input (watch out for escaping backticks and ${})
 
   const editor =
     document.querySelector('div.tiptap.ProseMirror[contenteditable="true"]') ||
@@ -16,19 +16,19 @@
   if (!editor) return JSON.stringify({ ok: false, error: 'EDITOR_NOT_FOUND' });
 
   editor.focus();
-  // 清空
+  // Clear
   const sel = window.getSelection();
   sel.selectAllChildren(editor);
   sel.deleteFromDocument();
 
-  // 用 paste 事件写入：ProseMirror 会把它解析成段落，多行也安全
+  // Write via a paste event: ProseMirror parses it into paragraphs, so multi-line text is safe too
   const dt = new DataTransfer();
   dt.setData('text/plain', PROMPT);
   editor.dispatchEvent(new ClipboardEvent('paste', {
     clipboardData: dt, bubbles: true, cancelable: true
   }));
 
-  // 兜底：paste 没生效就用 insertText
+  // Fallback: if paste did not take effect, use insertText
   if (!editor.innerText.trim()) {
     document.execCommand('insertText', false, PROMPT);
   }

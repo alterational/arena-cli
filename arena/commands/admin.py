@@ -1,4 +1,4 @@
-"""arena status / doctor / version —— 环境与状态总览。"""
+"""arena status / doctor / version — overview of the environment and status."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _session_summary(state_file: Path, engine_cfg: dict) -> dict:
 
 
 def run_status(ctx, args) -> int:
-    """离线总览（不启动浏览器，秒回）：profile / 会话 / 配置 / 最近后台任务。"""
+    """Offline overview (does not launch a browser; returns instantly): profile / session / configuration / recent background jobs."""
     from .. import __version__, jobs
 
     session = _session_summary(ctx.paths.state_file, ctx.engine_cfg)
@@ -45,31 +45,31 @@ def run_status(ctx, args) -> int:
         "config_exists": ctx.paths.config_file.exists(),
         "timeout": ctx.get("timeout"),
         "recent_jobs": [{k: j[k] for k in ("job_id", "status", "prompt")} for j in recent],
-        "hint": ("会话里发现登录凭证；用 `arena check` 做线上验证"
+        "hint": ("Login credentials found in the session; use `arena check` to verify online"
                  if session.get("has_auth_cookie") else
-                 "没有可用登录态：arena cookies import <cookies 文件>"),
+                 "No usable login session: arena cookies import <cookies file>"),
     }
 
     def human() -> None:
         ctx.ui.kv([
-            ("版本", data["version"]),
+            ("version", data["version"]),
             ("profile", data["profile"]),
-            ("目标站点", data["base_url"]),
-            ("代理", data["proxy"] or "直连"),
-            ("会话文件", f"{data['state_file']}"
-                        + ("" if session["exists"] else "（不存在）")),
+            ("target site", data["base_url"]),
+            ("proxy", data["proxy"] or "direct"),
+            ("session file", f"{data['state_file']}"
+                             + ("" if session["exists"] else " (missing)")),
             ("cookies", session.get("cookies")),
-            ("登录凭证", session.get("auth_cookie_names") or "无"),
-            ("已过期", session.get("expired_names") or "-"),
-            ("配置文件", data["config_file"] + ("" if data["config_exists"] else "（未创建）")),
-            ("等待上限", f"{data['timeout']}s"),
+            ("login credentials", session.get("auth_cookie_names") or "none"),
+            ("expired", session.get("expired_names") or "-"),
+            ("config file", data["config_file"] + ("" if data["config_exists"] else " (not created)")),
+            ("wait limit", f"{data['timeout']}s"),
         ], title="arena status")
         if recent:
-            ctx.ui.table(["job_id", "状态", "prompt"],
+            ctx.ui.table(["job_id", "status", "prompt"],
                          [[j["job_id"], j["status"], (j["prompt"] or "")[:48]] for j in recent],
-                         title="\n最近后台任务")
+                         title="\nRecent background jobs")
         ctx.ui.info(data["hint"])
         if not session.get("has_auth_cookie"):
-            ctx.ui.info("首次使用：arena cookies import <cookies 文件> --yes   （或 arena login --email 你的邮箱）")
+            ctx.ui.info("First use: arena cookies import <cookies file> --yes   (or arena login --email your@email.com)")
 
     return ctx.emit(data, human=human)

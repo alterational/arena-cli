@@ -1,5 +1,5 @@
 {
-  "_comment": "覆盖默认配置：只写想改的字段。页面改版时先改这里，不要改代码。",
+  "_comment": "Overrides the default configuration: only include the fields you want to change. When the page changes, update this file first; do not change the code.",
   "base_url": "https://arena.ai",
   "agent_path": "/agent",
   "proxy": "",

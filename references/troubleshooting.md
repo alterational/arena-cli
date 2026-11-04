@@ -1,119 +1,117 @@
-# 维护手册：选择器、错误码、DOM 结构
+# Maintenance Manual: Selectors, Error Codes, DOM Structure
 
-页面改版时**只改配置**，不改代码：`cp config.example.json ~/.arena-cli/config.json` 后按需修改，
-或给 `arena_ask.py` / `arena_agent.py` 传 `--config <文件>`。
+When the page changes, **only change the configuration**, not the code: `cp config.example.json ~/.arena-cli/config.json`, then edit as needed,
+or pass `--config <file>` to `arena_ask.py` / `arena_agent.py`.
 
-## arena.ai/agent 的真实结构（实测 2026-10）
+## Actual Structure of arena.ai/agent (Verified 2026-10)
 
-| 元素 | 选择器 | 说明 |
+| Element | Selector | Notes |
 | --- | --- | --- |
-| 输入框 | `div.tiptap.ProseMirror[contenteditable="true"]` | Tiptap/ProseMirror，**不是** textarea；改 `innerText` 无效，必须派发 `paste` 事件 |
-| 发送按钮 | `button[aria-label="Send message"]` | 输入为空时 disabled |
-| 停止/生成中 | `button[aria-label*="Stop" i]` | 出现即代表还在流式输出 |
-| 对话回合 | `[data-agent-transcript-message]` | 用户、助手各一个 |
-| 用户回合标记 | `[data-user-message-body-row]` | 只在用户回合里出现 |
-| 回答正文 | `[data-agent-transcript-message]:not(:has([data-user-message-body-row])) .prose` | 时间戳、`Was this task successful?` 等噪音在 `.prose` 之外，天然被排除 |
-| Terms 弹窗 | `[role="dialog"]:has-text("Terms of Use")` + 按钮 `Agree` | 首次访问必点 |
-| 登录弹窗 | `[role="dialog"]:has-text("Log In or Create Account")` | 点发送才出现 |
-| 登录邮箱框 | `[role="dialog"] input[type="email"]` | 按钮文案 `Continue with email` |
-| 未登录落地页 | 正文含 `Experience the frontier` | 判断"没登录"的可靠信号 |
-| 已登录标记 | `a[href="/history/search"]`、`button[aria-label*="New chat" i]` | 侧边栏历史入口 |
+| Input box | `div.tiptap.ProseMirror[contenteditable="true"]` | Tiptap/ProseMirror, **not** a textarea; setting `innerText` has no effect, a `paste` event must be dispatched |
+| Send button | `button[aria-label="Send message"]` | Disabled when the input is empty |
+| Stop / generating | `button[aria-label*="Stop" i]` | Its presence means streaming output is still in progress |
+| Conversation turn | `[data-agent-transcript-message]` | One for the user, one for the assistant |
+| User turn marker | `[data-user-message-body-row]` | Appears only in user turns |
+| Answer body | `[data-agent-transcript-message]:not(:has([data-user-message-body-row])) .prose` | Timestamps, `Was this task successful?`, and other noise sit outside `.prose`, so they are naturally excluded |
+| Terms dialog | `[role="dialog"]:has-text("Terms of Use")` + the `Agree` button | Must be clicked on first visit |
+| Login dialog | `[role="dialog"]:has-text("Log In or Create Account")` | Appears after clicking send |
+| Login email field | `[role="dialog"] input[type="email"]` | Button text `Continue with email` |
+| Logged-out landing page | Body text contains `Experience the frontier` | A reliable signal that you are **not** logged in |
+| Logged-in markers | `a[href="/history/search"]`, `button[aria-label*="New chat" i]` | Sidebar history entry |
 
-## 登录态怎么存
+## How Login Data Is Stored
 
-- 主存储：`~/.arena-cli/prof`（浏览器用户目录，最稳）
-- 可移植快照：`~/.arena-cli/state.json`（cookies + localStorage，权限 600）
-- 登录 cookie 是 **httpOnly**，`document.cookie` 读不到 → 必须用 Playwright 的 `storage_state`
-- 关键凭据 cookie 名：`arena-auth-prod-v1.1` / `arena-auth-prod-v1.0`（配置项 `auth_cookie_patterns`）
+- Primary storage: `~/.arena-cli/prof` (the browser user-data directory; the most reliable option)
+- Portable snapshot: `~/.arena-cli/state.json` (cookies + localStorage, permissions 600)
+- The login cookie is **httpOnly**, so `document.cookie` cannot read it → you must use Playwright's `storage_state`
+- Key credential cookie names: `arena-auth-prod-v1.1` / `arena-auth-prod-v1.0` (configuration key `auth_cookie_patterns`)
 
-## 等待完成的判定
+## Criteria for Detecting Completion
 
-"文本连续 `stable_seconds`（默认 2.5s）不变" **且** "没有 Stop 按钮" → 认为生成结束；
-硬上限 `wait_timeout`（默认 900s）。只 sleep 固定时间会在长任务上误判。
+Generation is considered finished when **the text has stayed unchanged for `stable_seconds`** (default 2.5s) **and** **there is no Stop button**;
+the hard limit is `wait_timeout` (default 900s). Sleeping for a fixed time alone would misjudge long tasks.
 
-## 错误码
+## Error Codes
 
-| 码 | 退出码 | 处理 |
+| Code | Exit code | Action |
 | --- | --- | --- |
-| `LOGIN_REQUIRED` | 2 | 导入/更新 cookies，或 `login` |
-| `LOGIN_FAILED` / `LOGIN_TIMEOUT` | 2 | 换真实邮箱域、加长 `--wait`、直接用 cookies |
-| `SEND_FAILED` | 3 | 重试一次；仍失败 `--headed` 看页面 |
-| `TIMEOUT` | 4 | `--timeout` 加长，或把 `url` 交给用户 |
-| `UI_CHANGED` | 5 | 更新本文档/配置里的选择器 |
-| `RATE_LIMITED` | 7 | `POST /nextjs-api/stream/create-chat` 返回 **429**：等几分钟再试，或换一份 cookies / 换 `--profile` |
-| `BLOCKED` | 6 | 人机校验：新鲜 cookies / `--headed` 人工过 / 换网络 |
-| `BAD_INPUT` | 1 | prompt 为空或 cookies 文件格式不认识 |
+| `LOGIN_REQUIRED` | 2 | Import/update cookies, or run `login` |
+| `LOGIN_FAILED` / `LOGIN_TIMEOUT` | 2 | Use a real email domain, increase `--wait`, or use cookies directly |
+| `SEND_FAILED` | 3 | Retry once; if it still fails, use `--headed` to inspect the page |
+| `TIMEOUT` | 4 | Increase `--timeout`, or give the `url` to the user |
+| `UI_CHANGED` | 5 | Update the selectors in this document / the configuration |
+| `RATE_LIMITED` | 7 | `POST /nextjs-api/stream/create-chat` returned **429**: wait a few minutes and retry, or switch cookies / use a different `--profile` |
+| `BLOCKED` | 6 | Human verification: fresh cookies / complete it manually with `--headed` / change network |
+| `BAD_INPUT` | 1 | Empty prompt, or the cookies file format is not recognized |
 
-## 发送链路（2026-10 实测）
+## Send Flow (Verified 2026-10)
 
-1. 落地页 `/agent` 是 Next.js SPA：`domcontentloaded` 时编辑器已在 DOM，但 React 事件还没挂上
-   → 这时点发送会被吞掉。所以 `open_agent()` 之后必须 `settle()`（等 `networkidle` + 400ms）。
-2. 真正发送时页面会 `POST /nextjs-api/stream/create-chat`；成功后 URL 变成 `/agent/<chat_id>`。
-3. 被限流时该接口返回 **429**，页面会把乐观渲染的消息整条**撤回**、退回落地页（不弹任何错误提示）。
-   所以「消息没了 + 落地页」必须判定为失败，绝不能把整页文本差分当成回答（曾经抽出过 `"Agent"` 这种控件文案）。
-   现在的做法：监听 `create-chat` 的响应状态 + 检测「对话区消失」，报 `RATE_LIMITED`（退出码 7）。
+1. The landing page `/agent` is a Next.js SPA: at `domcontentloaded` the editor is already in the DOM, but React event handlers are not attached yet,
+   so a click on send gets swallowed. Therefore `open_agent()` must be followed by `settle()` (wait for `networkidle` + 400ms).
+2. When actually sending, the page issues `POST /nextjs-api/stream/create-chat`; on success the URL changes to `/agent/<chat_id>`.
+3. When rate limited, this endpoint returns **429**, and the page retracts the optimistically rendered message and returns to the landing page, without showing any error.
+   So "message gone + landing page" must be treated as a failure, and whole-page text diffs must never be treated as the answer (this once extracted control labels such as `"Agent"`).
+   The current approach: monitor the response status of `create-chat` and detect "conversation area disappeared", then report `RATE_LIMITED` (exit code 7).
 
-## 会话 URL 与续聊
-- agent 会话每条都是独立地址：`https://arena.ai/agent/<chat_id>`，chat_id 即 `arena chat list` 里的 ID（UUID 格式）。`scripts/arena_agent.py` **不支持 --chat**，它每次都开新落地页（新会话）；要续上下文必须用 `arena ask --chat <chat_id|last|序号>`，引擎会真正 goto `/agent/<chat_id>` 再发消息。
-- 直接用 agent 脚本"接着问"不会带历史——表现为重复上一题的回答。
+## Session URLs and Continuing Conversations
 
-## 多轮对话（`--chat`）
+- Each agent conversation has its own address: `https://arena.ai/agent/<chat_id>`, where chat_id is the ID shown by `arena chat list` (UUID format). `scripts/arena_agent.py` **does not support --chat**; it always opens a new landing page (a new conversation). To continue with context, you must use `arena ask --chat <chat_id|last|index>`, and the engine will actually `goto /agent/<chat_id>` before sending the message.
+- Using the agent script to "ask a follow-up" does not carry history; the symptom is that it repeats the answer to the previous question.
 
-`arena ask --chat <chat_id|URL|last|序号>` 会先 `goto /agent/<id>`，再发新消息。
+## Multi-turn Conversations (`--chat`)
 
-**坑**：一个已经跑完的会话，底部不是输入框，而是「**Was this task successful?**」反馈卡
-（`Yes / No / Keep working` + 右上角 `×` / `Esc`）。它把 composer 顶掉了，所以 `wait_editor()`
-会一直找不到输入框 → 报 `UI_CHANGED`。处理：`dismiss_feedback()` —— 认 `feedback_text` 文案，
-优先点 `button[aria-label*="Close"]`，退路是按 `Esc`，然后重新等输入框。
+`arena ask --chat <chat_id|URL|last|index>` first runs `goto /agent/<id>`, then sends the new message.
 
-另外 `last` / 序号（`arena chat list` 里的 `#1`）由 `commands/ask.resolve_chat()` 换成真 chat_id，
-`Session.open_chat()` 只认 chat_id / URL，别直接把 `last` 传进去（会拼成 `/agent/last`）。
+**Pitfall**: in a conversation that has already finished, the bottom of the page is not the input box but the "**Was this task successful?**" feedback card
+(`Yes / No / Keep working` plus an `×` / `Esc` in the top right). It pushes the composer out of view, so `wait_editor()`
+keeps failing to find the input box → reports `UI_CHANGED`. Fix: `dismiss_feedback()` — it recognizes the `feedback_text` copy,
+prefers clicking `button[aria-label*="Close"]`, falls back to pressing `Esc`, and then waits for the input box again.
 
-## 流式输出（`--stream`）
+In addition, `last` / indexes (`#1` in `arena chat list`) are converted to real chat_ids by `commands/ask.resolve_chat()`.
+`Session.open_chat()` only accepts chat_ids / URLs, so do not pass `last` directly (it would produce `/agent/last`).
 
-引擎每轮轮询都会 `extract_answer()`，`Session.ask(on_update=...)` 在文本变长时回调，
-`commands/ask.Streamer` 把**增量**写到 stderr，stdout 仍然只有最终回答（`--json` 也不受影响）。
-注意 `open_session()` 非 verbose 时会把 `sys.stderr` 重定向进 StringIO 吞掉 Playwright 噪音，
-所以 Streamer 必须写 `sys.__stderr__`。轮询间隔在流式时降到 0.5s。
+## Streaming Output (`--stream`)
 
-## 工作区（Workspace 面板）
+On every polling round the engine calls `extract_answer()`, and `Session.ask(on_update=...)` invokes the callback whenever the text grows.
+`commands/ask.Streamer` writes the **increments** to stderr, while stdout still contains only the final answer (`--json` is unaffected).
+Note that when not in verbose mode, `open_session()` redirects `sys.stderr` into a StringIO to swallow Playwright noise,
+so the Streamer must write to `sys.__stderr__`. During streaming the polling interval is reduced to 0.5s.
 
-`/agent/<chat_id>` 右侧那张卡片。实测**两种 UI 变体**：
+## Workspace (Workspace Panel)
 
-1. **经典列表**（常见）：行是 `div[role="button"][aria-label="<文件名> file"]`，层级靠
-   `style="padding-left: 8/24/40px"`（8 = 根，每级 +16），每行内嵌
-   `<a download aria-label="Download <文件名>" href="/api/chat/workspace/cas/user/<hash>">`。
-   折叠文件夹 `button[aria-label="Collapse|Expand <名字> folder"]`，**子项不在 DOM 里**，要点开才有。
-2. **文件树**（大工作区/新版本）：`aria-label="Open file"` + `Expand` + `Copy`，没有按文件的
-   `a[download]`，行名靠文本，路径也拿不准。
+The card on the right side of `/agent/<chat_id>`. Two UI variants have been observed in practice:
 
-所以 `arena/engine.py` 的策略是：先按 (1) 读，读不出行但面板统计里有文件时，**回落到
-页面右上角「下载工作区」的 zip**（`a[aria-label="Download workspace"]` →
-`/api/chat/<chat>/workspace/<uuid>/download`）：`workspace_zip_entries()` 列目录，
-`workspace_zip_read()` 取内容。`arena workspace list --json` 的 `data.source`
-会标 `dom` 还是 `archive`。
+1. **Classic list** (common): rows are `div[role="button"][aria-label="<file name> file"]`, with hierarchy indicated by
+   `style="padding-left: 8/24/40px"` (8 = root, +16 per level). Each row embeds
+   `<a download aria-label="Download <file name>" href="/api/chat/workspace/cas/user/<hash>">`.
+   Collapsed folders are `button[aria-label="Collapse|Expand <name> folder"]`; **child items are not in the DOM** until expanded.
+2. **File tree** (large workspaces / newer version): `aria-label="Open file"` + `Expand` + `Copy`, with no per-file `a[download]`; rows are identified by text, and paths are uncertain.
 
-坑：
-- 面板头部有时先渲染骨架（`animate-pulse` 占位），stats 早于行出现 → 要轮询等。
-- 统计文本可能是 `47B/128.0MB` + `2/10K files`，也可能是 `1.7K/10K files`（千位缩写）；
-  `workspace.parse_stats()` 用 `re.search` 而不是整行匹配。
-- 大工作区（29MB / 1.7K files）页面 `networkidle` 永远等不到 → 打开时用
-  `domcontentloaded` + `wait_loaded()`，不要 `wait_editor()`（看文件用不着输入框）。
+So the strategy in `arena/engine.py` is: read variant (1) first; when rows cannot be read but the panel statistics show files, **fall back to the "Download workspace" zip in the top right of the page**
+(`a[aria-label="Download workspace"]` → `/api/chat/<chat>/workspace/<uuid>/download`): `workspace_zip_entries()` lists directories, and `workspace_zip_read()` reads contents.
+`arena workspace list --json` marks `data.source` as either `dom` or `archive`.
 
-## 代理
+Pitfalls:
+- The panel header sometimes renders a skeleton first (`animate-pulse` placeholders), so the stats appear before the rows → polling is required.
+- The stats text may be `47B/128.0MB` + `2/10K files`, or abbreviated thousands such as `1.7K/10K files`;
+  `workspace.parse_stats()` uses `re.search` rather than matching the whole line.
+- For large workspaces (29MB / 1.7K files) the page never reaches `networkidle` → open with
+  `domcontentloaded` + `wait_loaded()`, not `wait_editor()` (viewing files does not need the input box).
 
-- 浏览器：`launch_persistent_context(proxy=...)`，地址支持 `http/https/socks5`，`user:pass@` 会拆成
-  `username/password`。**必须**同时加 `--proxy-bypass-list=<-loopback>`，否则 Chrome 默认给
-  localhost 开直连白名单（测试脚本跑 mock 时会以为代理没生效）。
-- `arena doctor` 的网络检查走 `urllib` + `ProxyHandler`，会标「（经代理）」。
-- 输出/日志里用 `mask_proxy()` 把密码打码。
-- 代理连不通 → 导航抛 `PWError` → 转成 `BROWSER_ERROR`（退出码 1），hint 提示先 `curl -x` 验证代理。
-- 测试：`tests/proxy_server.py` 是个几十行的正向代理，断言「请求真的从代理过」而不是只看配置有没有写进去。
+## Proxy
 
-## 自测
+- Browser: `launch_persistent_context(proxy=...)`; addresses support `http/https/socks5`, and `user:pass@` is split into
+  `username/password`. `--proxy-bypass-list=<-loopback>` **must** also be added, otherwise Chrome by default puts
+  localhost on its direct-connection allowlist (test scripts running against the mock would wrongly conclude the proxy had no effect).
+- The network check in `arena doctor` uses `urllib` + `ProxyHandler` and is labeled "(via proxy)".
+- Passwords are masked with `mask_proxy()` in output and logs.
+- If the proxy cannot connect → navigation raises `PWError` → converted to `BROWSER_ERROR` (exit code 1), with a hint to verify the proxy first using `curl -x`.
+- Testing: `tests/proxy_server.py` is a forward proxy of a few dozen lines; the assertion checks that requests actually went through the proxy, not just that the configuration was written.
+
+## Self-Tests
 
 ```bash
-python3 tests/run_tests.py      # 引擎 + CLI（本地 mock，12 组，含 429 限流）
-python3 tests/run_js_tests.py   # snippets/*.js（纯 JS 路线）
-python3 scripts/verify_skill.py # SKILL.md 是否符合 Hermes 技能规范
+python3 tests/run_tests.py      # Engine + CLI (local mock, 12 groups, including 429 rate limiting)
+python3 tests/run_js_tests.py   # snippets/*.js (pure JS route)
+python3 scripts/verify_skill.py # Checks whether SKILL.md conforms to the Hermes skill spec
 ```

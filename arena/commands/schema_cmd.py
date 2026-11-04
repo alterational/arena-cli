@@ -1,4 +1,4 @@
-"""arena schema —— 给 agent 自省的命令说明。"""
+"""arena schema — command descriptions for agent introspection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from ..errors import ArenaError
 
 
 def _expand_path(path: list[str]) -> list[str]:
-    """`schema workspace.download` -> ["workspace", "download"]（点分写法也认）。"""
+    """`schema workspace.download` -> ["workspace", "download"] (dotted notation is also accepted)."""
     out: list[str] = []
     for raw in path:
         out.extend(part for part in str(raw).split(".") if part)
@@ -15,56 +15,56 @@ def _expand_path(path: list[str]) -> list[str]:
 
 
 def run(ctx, args) -> int:
-    # 延迟导入，避免和 cli 循环依赖
+    # Deferred import to avoid a circular dependency with cli
     from ..cli import RISK, build_parser
 
     parser = build_parser()
     path = _expand_path(list(getattr(args, "path", []) or []))
 
-    if not path:                                  # 没给路径：列全部命令
+    if not path:                                  # No path given: list all commands
         commands = []
         for name in spec.available_commands(parser):
             target, _ = spec.find(parser, [name])
             children = spec.available_commands(target) if target else []
             commands.append({"command": name, "risk": RISK.get(name, "read"),
                              "subcommands": children})
-        data = {"commands": commands, "usage": "arena schema <命令> [子命令]"}
+        data = {"commands": commands, "usage": "arena schema <command> [subcommand]"}
         def human() -> None:
-            ctx.ui.table(["命令", "风险", "子命令"],
+            ctx.ui.table(["command", "risk", "subcommands"],
                          [[c["command"], c["risk"],
                            ", ".join(c["subcommands"]) or "-"] for c in commands],
                          title="arena schema")
-            ctx.ui.info("细看某个命令：arena schema ask / arena schema cookies import")
+            ctx.ui.info("To see details of a command: arena schema ask / arena schema cookies import")
         return ctx.emit(data, human=human)
 
     target, walked = spec.find(parser, path)
     if not walked:
-        raise ArenaError("validation", "unknown_command", f"未知命令：{' '.join(path)}",
-                         "可用命令：" + ", ".join(spec.available_commands(parser)), exit_code=USAGE_ERR)
-    if len(walked) < len(path):                  # 前几段对、后面那段不存在
+        raise ArenaError("validation", "unknown_command", f"Unknown command: {' '.join(path)}",
+                         "Available commands: " + ", ".join(spec.available_commands(parser)), exit_code=USAGE_ERR)
+    if len(walked) < len(path):                  # The first segments are valid; the last one does not exist
         subs = spec.available_commands(target) if target is not None else []
         raise ArenaError(
             "validation", "unknown_command",
-            f"未知子命令：{' '.join(path[len(walked):])}（在 {walked[-1]} 下）",
-            "可用子命令：" + (", ".join(subs) or "（无）"), exit_code=USAGE_ERR)
+            f"Unknown subcommand: {' '.join(path[len(walked):])} (under {walked[-1]})",
+            "Available subcommands: " + (", ".join(subs) or "(none)"), exit_code=USAGE_ERR)
     info = spec.describe(parser, path, RISK)
 
     def human() -> None:
         ctx.ui.kv([
-            ("命令", info["command"]),
-            ("风险", info["risk"] + ("（需要 --yes）" if info["risk"] == "high-risk-write" else "")),
-            ("说明", info["summary"]),
+            ("command", info["command"]),
+            ("risk", info["risk"] + (" (requires --yes)" if info["risk"] == "high-risk-write" else "")),
+            ("summary", info["summary"]),
         ])
         params = info["params"]
         if params:
-            ctx.ui.table(["参数", "必填", "默认", "说明"],
+            ctx.ui.table(["parameter", "required", "default", "description"],
                          [[p.get("flag") or p.get("arg"),
-                           "是" if p.get("required") else "",
+                           "yes" if p.get("required") else "",
                            str(p.get("default", "")), p.get("help", "")[:46]] for p in params],
-                         title="\n参数")
-            ctx.ui.info("全局参数（--json / --jq / --dry-run / --yes / --profile / --timeout …）对所有命令生效")
+                         title="\nParameters")
+            ctx.ui.info("Global options (--json / --jq / --dry-run / --yes / --profile / --timeout …) apply to all commands")
         if info.get("subcommands"):
-            ctx.ui.table(["子命令"], [[s] for s in info["subcommands"]], title="\n子命令")
+            ctx.ui.table(["subcommand"], [[s] for s in info["subcommands"]], title="\nSubcommands")
 
     return ctx.emit(info, human=human)
 

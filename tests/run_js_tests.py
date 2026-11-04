@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-run_js_tests.py — 验证 snippets/*.js（只有 browser_exec、只能执行 JS 的路线）
+run_js_tests.py — verifies snippets/*.js (the browser_exec-only route, where only JS can be executed)
 
-用本地 mock 站点跑一遍：
-  03_login_email.js(STEP=terms) -> 01_fill_and_send.js -> 02_wait_and_read.js 直到 done
+Runs once against the local mock site:
+  03_login_email.js(STEP=terms) -> 01_fill_and_send.js -> 02_wait_and_read.js until done
 """
 
 from __future__ import annotations
@@ -51,18 +51,18 @@ def main() -> int:
         page.goto(url)
         page.wait_for_timeout(800)
 
-        print("[1] 03_login_email.js STEP=terms（关掉 Terms 弹窗）")
+        print("[1] 03_login_email.js STEP=terms (dismiss the Terms dialog)")
         res = json.loads(page.evaluate(snippet("03_login_email.js")))
-        check("Terms 已处理", res.get("ok") is True, str(res))
-        check("弹窗已消失", page.locator('[role=dialog]:has-text("Terms of Use")').count() == 0)
+        check("Terms handled", res.get("ok") is True, str(res))
+        check("Dialog gone", page.locator('[role=dialog]:has-text("Terms of Use")').count() == 0)
 
-        print("\n[2] 01_fill_and_send.js（写入并发送，含多行与特殊字符）")
-        prompt = "帮我做三件事：\n1. 打开网页\n2. 记住 cookies\n3. 取回回答 <ok> & \"quote\""
+        print("\n[2] 01_fill_and_send.js (write and send; includes multiple lines and special characters)")
+        prompt = "Do three things:\n1. Open the web page\n2. Remember cookies\n3. Fetch the answer <ok> & \"quote\" café"
         js = snippet("01_fill_and_send.js").replace("__PROMPT__", prompt.replace("`", "\\`"))
         res = json.loads(page.evaluate(js))
-        check("发送成功", res.get("ok") is True, str(res))
+        check("Send succeeded", res.get("ok") is True, str(res))
 
-        print("\n[3] 02_wait_and_read.js（轮询到 done）")
+        print("\n[3] 02_wait_and_read.js (polling until done)")
         head = prompt.split("\n")[0][:40]
         js2 = snippet("02_wait_and_read.js").replace("__PROMPT_HEAD__", head.replace("`", "\\`"))
         answer, done = "", False
@@ -73,19 +73,19 @@ def main() -> int:
             if r.get("done"):
                 done = True
                 break
-        check("完成标记出现", done, str(r))
-        check("回答内容正确", "记住 cookies" in answer, answer[:200])
-        check("特殊字符未被破坏", "<ok>" in answer, answer[:200])
-        check("没有残留 Stop 按钮", page.locator('button[aria-label*="Stop"]').count() == 0)
+        check("Completion marker appeared", done, str(r))
+        check("Answer content is correct", "Remember cookies" in answer and "café" in answer, answer[:200])
+        check("Special characters were not mangled", "<ok>" in answer, answer[:200])
+        check("No leftover Stop button", page.locator('button[aria-label*="Stop"]').count() == 0)
 
         print("\n[4] 04_dump_session.js")
         r = json.loads(page.evaluate(snippet("04_dump_session.js")))
-        check("能导出 localStorage", r.get("ok") is True and "localStorage" in r, str(r)[:200])
+        check("localStorage can be exported", r.get("ok") is True and "localStorage" in r, str(r)[:200])
 
         browser.close()
 
     srv.shutdown()
-    print("\n" + ("全部通过 ✅" if not FAILED else f"失败 {len(FAILED)} 项 ❌: {FAILED}"))
+    print("\n" + ("All passed ✅" if not FAILED else f"{len(FAILED)} failed ❌: {FAILED}"))
     return 0 if not FAILED else 1
 
 

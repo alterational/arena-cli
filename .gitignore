@@ -1,4 +1,4 @@
-# ---- 凭证：等同密码，绝不入库 ----
+# ---- Credentials: equivalent to passwords, never commit ----
 .arena-cli/
 state.json
 cookies.json
@@ -21,14 +21,14 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# ---- 测试/临时产物 ----
+# ---- Test / temporary artifacts ----
 /tmp/
 .tmp-test*/
 arena-test-*/
 *.tmp
 out/
 
-# ---- 编辑器 / 系统 ----
+# ---- Editor / system ----
 .DS_Store
 .idea/
 .vscode/
