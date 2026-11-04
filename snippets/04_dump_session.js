@@ -1,12 +1,12 @@
 /**
- * 04_dump_session.js —— 兜底的"记住登录"方案（纯 JS 版）
+ * 04_dump_session.js — fallback "remember login" approach (pure JS version)
  *
- * ⚠️ 重要：arena.ai 的登录 cookie 是 httpOnly 的，document.cookie 读不到。
- *    所以"记住 cookies"请优先用 Python 脚本（Playwright 的 storage_state 能拿到 httpOnly）：
- *        python scripts/arena_agent.py login       # 保存 ~/.arena-cli/state.json
+ * ⚠️ Important: arena.ai's login cookie is httpOnly, so document.cookie cannot read it.
+ *    So for "remembering cookies", prefer the Python script (Playwright storage_state can capture httpOnly cookies):
+ *        python scripts/arena_agent.py login       # saves ~/.arena-cli/state.json
  *        python scripts/arena_agent.py export-cookies --out cookies.json
- *    本脚本只导出 JS 能看见的那部分（localStorage + 非 httpOnly cookie），
- *    适合 browser_exec 只能执行 JS、无法访问 context.cookies() 的受限环境。
+ *    This script only exports what JS can see (localStorage + non-httpOnly cookies),
+ *    suitable for restricted environments where browser_exec can only run JS and cannot access context.cookies().
  */
 (() => {
   const cookies = document.cookie
@@ -25,7 +25,7 @@
   return JSON.stringify({
     ok: true,
     origin: location.origin,
-    note: 'httpOnly cookies 不在此列；如需完整会话请用 Python 版 export-cookies',
+    note: 'httpOnly cookies are not included here; for the full session use the Python export-cookies command',
     cookies,
     localStorage: localStorageDump,
   }, null, 2);

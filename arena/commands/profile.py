@@ -1,4 +1,4 @@
-"""arena profile list|show|create|use|delete —— 多账号/多套登录态切换。"""
+"""arena profile list|show|create|use|delete — switch between multiple accounts / login sessions."""
 
 from __future__ import annotations
 
@@ -19,16 +19,16 @@ def _profiles() -> list[str]:
 
 def _status(state_file: Path) -> str:
     if not state_file.exists():
-        return "空（未导入 cookies）"
+        return "empty (no cookies imported)"
     try:
         from ..engine import parse_cookie_file, summarize_cookies
         cookies, _ = parse_cookie_file(state_file)
         health = summarize_cookies(cookies, {})
         if health["has_auth_cookie"]:
-            return f"{health['count']} 条，含 {health['auth_cookie_names'][0]}"
-        return f"{health['count']} 条 cookies（无登录凭证）"
+            return f"{health['count']} cookies, including {health['auth_cookie_names'][0]}"
+        return f"{health['count']} cookies (no login credential)"
     except Exception:  # noqa: BLE001
-        return "无法读取"
+        return "unreadable"
 
 
 def run_list(ctx, args) -> int:
@@ -43,8 +43,8 @@ def run_list(ctx, args) -> int:
                           "state_file": r[3]} for r in rows]}
 
     def human() -> None:
-        ctx.ui.table(["profile", "", "会话", "state_file"], rows, title="profiles")
-        ctx.ui.info("arena profile use <name> 切换；arena profile create <name> 新建")
+        ctx.ui.table(["profile", "", "session", "state_file"], rows, title="profiles")
+        ctx.ui.info("arena profile use <name> to switch; arena profile create <name> to create a new one")
 
     return ctx.emit(data, human=human)
 
@@ -59,14 +59,14 @@ def run_show(ctx, args) -> int:
 def run_create(ctx, args) -> int:
     name = args.name
     if name == "default":
-        ctx.ui.fail("BAD_INPUT", "default 已存在", "换一个名字")
+        ctx.ui.fail("BAD_INPUT", "default already exists", "Choose a different name")
         return 1
     state_file, profile_dir = profile_paths(name)
     if state_file.exists() or profile_dir.exists():
-        ctx.ui.fail("BAD_INPUT", f"profile「{name}」已存在", "arena profile list")
+        ctx.ui.fail("BAD_INPUT", f"profile \"{name}\" already exists", "arena profile list")
         return 1
     profile_dir.mkdir(parents=True, exist_ok=True)
-    if args.from_cookies:                      # 直接从 cookies 文件起步
+    if args.from_cookies:                      # Start directly from a cookies file
         from ..engine import SkillError, cmd_import
         try:
             res = cmd_import(Path(args.from_cookies).expanduser(), state_file, ctx.engine_cfg)
@@ -74,17 +74,17 @@ def run_create(ctx, args) -> int:
             from ..session import handle
             shutil.rmtree(profile_dir, ignore_errors=True)
             return handle(ctx, exc)
-        ctx.ui.ok(f"profile「{name}」已创建，并导入 {res['count']} 条 cookies")
+        ctx.ui.ok(f"profile \"{name}\" created and {res['count']} cookies imported")
     else:
-        ctx.ui.ok(f"profile「{name}」已创建（{profile_dir}）")
-        ctx.ui.info(f'下一步：arena profile use {name} && arena cookies import <cookies 文件>')
+        ctx.ui.ok(f"profile \"{name}\" created ({profile_dir})")
+        ctx.ui.info(f'Next step: arena profile use {name} && arena cookies import <cookies file>')
     return 0
 
 
 def run_use(ctx, args) -> int:
     name = args.name
     if name not in _profiles():
-        ctx.ui.fail("NOT_FOUND", f"没有 profile「{name}」", "arena profile list / arena profile create " + name)
+        ctx.ui.fail("NOT_FOUND", f"No profile \"{name}\"", "arena profile list / arena profile create " + name)
         return 1
     cfg_file = ctx.paths.config_file
     data = read_config(cfg_file)
@@ -92,29 +92,29 @@ def run_use(ctx, args) -> int:
     data["profile"] = name
     write_config(cfg_file, data)
     state_file, _ = profile_paths(name)
-    ctx.ui.ok(f"已切换到 profile「{name}」（写入 {cfg_file}）")
-    ctx.ui.info(f"会话：{_status(state_file)} → {state_file}")
+    ctx.ui.ok(f"Switched to profile \"{name}\" (written to {cfg_file})")
+    ctx.ui.info(f"Session: {_status(state_file)} → {state_file}")
     return 0
 
 
 def run_delete(ctx, args) -> int:
     name = args.name
     if name in ("default",):
-        ctx.ui.fail("BAD_INPUT", "不能删除 default profile", "可以直接 arena cookies show 查看它")
+        ctx.ui.fail("BAD_INPUT", "Cannot delete the default profile", "You can view it with arena cookies show")
         return 1
     state_file, profile_dir = profile_paths(name)
     if not state_file.exists() and not profile_dir.exists():
-        ctx.ui.fail("NOT_FOUND", f"没有 profile「{name}」", "arena profile list")
+        ctx.ui.fail("NOT_FOUND", f"No profile \"{name}\"", "arena profile list")
         return 1
     root = ctx.paths.home / "profiles" / name
     if ctx.dry_run():
         return ctx.emit({"action": "delete", "profile": name, "path": str(root)},
                         dry_run=True,
-                        human=lambda: ctx.ui.info(f"[dry-run] 会删除 {root}（含会话与浏览器数据）"))
+                        human=lambda: ctx.ui.info(f"[dry-run] would delete {root} (including session and browser data)"))
     if not getattr(args, "yes", False):
-        ctx.ui.warn(f"会删除 {root}（含会话与浏览器数据）。确认请加 --yes")
+        ctx.ui.warn(f"This will delete {root} (including the session and browser data). Add --yes to confirm")
         return 1
-    shutil.rmtree(root, ignore_errors=True)      # 整个 profile 目录，别留空壳
+    shutil.rmtree(root, ignore_errors=True)      # Remove the entire profile directory; leave no empty shell
     shutil.rmtree(profile_dir, ignore_errors=True)
     state_file.unlink(missing_ok=True)
     if ctx.get("profile") == name:
@@ -122,6 +122,6 @@ def run_delete(ctx, args) -> int:
         data = read_config(cfg_file)
         data["profile"] = "default"
         write_config(cfg_file, data)
-        ctx.ui.info("已把默认 profile 切回 default")
+        ctx.ui.info("Switched the default profile back to default")
     return ctx.emit({"profile": name, "deleted": True, "path": str(root)},
-                    human=lambda: ctx.ui.ok(f"已删除 profile「{name}」"))
+                    human=lambda: ctx.ui.ok(f"Deleted profile \"{name}\""))

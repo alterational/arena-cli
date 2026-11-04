@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# install.sh —— 把本目录安装成 Hermes 技能（斜杠命令 /arena-cli）
+# install.sh —— Installs this directory as a Hermes skill (slash command /arena-cli)
 #
-#   ./install.sh                 # 安装到 ~/.hermes/skills/arena-cli
-#   ./install.sh --force         # 已存在时覆盖
-#   HERMES_HOME=~/work/.hermes ./install.sh   # 指定 profile
-#   ./install.sh --link          # 用软链接（改代码即时生效，适合开发）
+#   ./install.sh                 # Install to ~/.hermes/skills/arena-cli
+#   ./install.sh --force         # Overwrite if it already exists
+#   HERMES_HOME=~/work/.hermes ./install.sh   # Specify a profile
+#   ./install.sh --link          # Use a symlink (code changes take effect immediately; good for development)
 #
-# 安装完成后在 Hermes 里直接：/arena-cli 帮我调研三家竞品的定价策略
+# After installation, run this directly in Hermes: /arena-cli Research the pricing strategies of three competitors
 set -euo pipefail
 
 SKILL_NAME="arena-cli"
@@ -21,18 +21,18 @@ for arg in "$@"; do
     --force) FORCE=1 ;;
     --link)  MODE="link" ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) echo "未知参数：$arg" >&2; exit 2 ;;
+    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 
-# 旧版本装的名字是 arena-agent：留着会变成两个斜杠命令，提醒一下
+# Older versions installed under the name arena-agent: leaving it in place would create two slash commands, so warn the user
 if [ -e "$HERMES_ROOT/skills/arena-agent" ] && [ "$MODE" != "link" ]; then
-  echo "⚠️  发现旧技能目录：$HERMES_ROOT/skills/arena-agent（2.4.0 起改名为 arena-cli），建议删掉：rm -rf \"$HERMES_ROOT/skills/arena-agent\"" >&2
+  echo "⚠️  Found an old skill directory: $HERMES_ROOT/skills/arena-agent (renamed to arena-cli in 2.4.0). Consider removing it: rm -rf \"$HERMES_ROOT/skills/arena-agent\"" >&2
 fi
 
 if [ -e "$DEST" ]; then
   if [ "$FORCE" -ne 1 ] && [ "$MODE" = "copy" ]; then
-    echo "⚠️  已存在：$DEST（要覆盖请加 --force）" >&2
+    echo "⚠️  Already exists: $DEST (add --force to overwrite)" >&2
     exit 1
   fi
   rm -rf "$DEST"
@@ -42,7 +42,7 @@ mkdir -p "$HERMES_ROOT/skills"
 
 if [ "$MODE" = "link" ]; then
   ln -s "$SRC" "$DEST"
-  echo "🔗 已软链：$DEST -> $SRC"
+  echo "🔗 Symlinked: $DEST -> $SRC"
 else
   mkdir -p "$DEST"
   cp "$SRC/SKILL.md" "$DEST/"
@@ -50,36 +50,36 @@ else
   [ -d "$SRC/references" ] && cp -R "$SRC/references" "$DEST/"
   [ -d "$SRC/snippets" ]   && cp -R "$SRC/snippets"   "$DEST/"
   [ -f "$SRC/config.example.json" ] && cp "$SRC/config.example.json" "$DEST/"
-  echo "✅ 已安装：$DEST"
+  echo "✅ Installed: $DEST"
 fi
 
-# 依赖检查
+# Dependency check
 if ! python3 -c "import playwright" 2>/dev/null; then
-  echo "⚠️  还没装 playwright：pip install -r \"$SRC/requirements.txt\" && python3 -m playwright install chromium" >&2
+  echo "⚠️  Playwright is not installed: pip install -r \"$SRC/requirements.txt\" && python3 -m playwright install chromium" >&2
 fi
 
-# 规范自检
+# Spec self-check
 python3 "$SRC/scripts/verify_skill.py" "$SRC" || true
 
 if ! command -v arena >/dev/null 2>&1; then
-  echo "提示：想直接用 \`arena\` 命令（而不只是斜杠命令），装一次：pip install -e \"$SRC\"（或 pipx install \"$SRC\"）" >&2
+  echo "Tip: to use the \`arena\` command directly (not just the slash command), install it once: pip install -e \"$SRC\" (or pipx install \"$SRC\")" >&2
 fi
 
 cat <<EOF
 
-用法（在 Hermes 里）：
-  /arena-cli 帮我调研三家竞品的定价策略
-  /arena-cli --cookies ~/uploads/arena.ai_cookies.txt 你的问题
+Usage (in Hermes):
+  /arena-cli Research the pricing strategies of three competitors
+  /arena-cli --cookies ~/uploads/arena.ai_cookies.txt your question
 
-装了 CLI 的话（等价，且功能更全）：
-  arena ask "帮我调研三家竞品的定价策略"
+If you have the CLI installed (equivalent, with more features):
+  arena ask "Research the pricing strategies of three competitors"
   arena cookies import ~/uploads/arena.ai_cookies.txt && arena check
   arena chat list / arena profile use work / arena doctor
 
-首次没有 cookies 文件时（二选一）：
-  1) 在浏览器登录 arena.ai → 导出 cookies（Netscape cookies.txt / EditThisCookie JSON）
-  2) python3 "$SRC/scripts/arena_agent.py" login --email 你的邮箱 --headed --wait 300
+If you have no cookies file yet (choose one):
+  1) Log in to arena.ai in your browser → export cookies (Netscape cookies.txt / EditThisCookie JSON)
+  2) python3 "$SRC/scripts/arena_agent.py" login --email your@email.com --headed --wait 300
 
-验证：
+Verify:
   python3 "$SRC/scripts/arena_agent.py" check
 EOF

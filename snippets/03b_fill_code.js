@@ -1,9 +1,9 @@
 /**
- * 03b_fill_code.js —— 登录弹窗里出现验证码/一次性密码时填进去
- * 支持：单个 input（maxlength=6）和 6 个独立小格子的两种常见实现。
+ * 03b_fill_code.js — fills in the verification code / one-time password when it appears in the login dialog
+ * Supports two common implementations: a single input (maxlength=6) and six separate small boxes.
  */
 (() => {
-  const CODE = '__CODE__';   // ← 从邮件里取到的验证码
+  const CODE = '__CODE__';   // ← the verification code taken from the email
   const R = o => JSON.stringify(o);
 
   const dialog = [...document.querySelectorAll('[role="dialog"]')].filter(d => d.offsetParent !== null)[0];
@@ -22,15 +22,15 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
-  if (boxes.length >= CODE.length) {         // 分格输入
+  if (boxes.length >= CODE.length) {         // Separate-box input
     [...CODE].forEach((ch, i) => { if (boxes[i]) { boxes[i].focus(); fire(boxes[i], ch); } });
-  } else {                                    // 单输入框
+  } else {                                    // Single input box
     boxes[0].focus();
     fire(boxes[0], CODE);
     boxes[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   }
 
-  // 有些实现还要点一下确认按钮
+  // Some implementations also require clicking a confirm button
   const submit = [...root.querySelectorAll('button')]
     .filter(visible)
     .find(b => /verify|continue|submit|sign in|confirm/i.test(b.innerText || ''));

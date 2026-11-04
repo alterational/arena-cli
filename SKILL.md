@@ -1,6 +1,6 @@
 ---
 name: arena-cli
-description: 把用户的话交给 arena.ai/agent 执行，取回 Agent 的回答（支持上传 cookies 文件）
+description: Send to arena.ai/agent, get answer (supports cookies upload)
 version: 2.1.0
 author: taozi
 license: MIT
@@ -11,140 +11,140 @@ metadata:
     requires_toolsets: [terminal]
     config:
       - key: arena.state_file
-        description: 保存 Arena 登录会话（cookies）的快照文件路径
+        description: Path to the snapshot of the Arena authenticated session (cookies)
         default: "~/.arena-cli/state.json"
-        prompt: Arena 会话快照路径
+        prompt: Arena session snapshot path
       - key: arena.timeout
-        description: 等待 Agent 执行完成的最长秒数
+        description: Maximum seconds to wait for the Agent to finish
         default: "900"
-        prompt: 最长等待秒数
+        prompt: Maximum wait time in seconds
 required_environment_variables: []
 ---
 
-# Arena Agent Mode（浏览器提问 → 取回结果）
+# Arena Agent Mode (ask in a browser → retrieve the result)
 
-把用户的请求交给 **https://arena.ai/agent** 上运行着的 Agent，等它跑完，把回答原样带回。
+Send the user's request to the Agent running at **https://arena.ai/agent**, wait for it to finish, and return its answer unchanged.
 
-一句话调用（推荐在此之后不要再自己加工）：
+One-command invocation (no additional rewriting is recommended afterward):
 
 ```bash
-arena ask "<用户的原话>"
+arena ask "<user's exact request>"
 ```
 
-`arena` 命令没装进 PATH 时，用等价的技能内置入口（契约完全相同）：
+If the `arena` command is not in PATH, use the equivalent built-in skill entry point (the contract is identical):
 
 ```bash
-python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<用户的原话>"
+python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py "<user's exact request>"
 ```
 
 ## When to Use
 
-- 用户说「用 Arena 的 Agent 帮我做 / 查 / 生成…」「把这段发给 arena agent 跑一下」「Agent Mode 那边结果怎么样」
-- 用户要在**同一个会话里接着追问**（多轮上下文）：第二次起加 `--chat last`
-- 用户上传了 arena.ai 的 cookies 文件，想直接借这个登录态提问
-- 任务需要 Arena Agent 的长链执行能力（调研、多步操作、产出文件），而不是本机一次性回答
+- The user says "use Arena's Agent to do/research/generate…", "send this to Arena Agent", or "what is the result from Agent Mode?"
+- The user wants to **follow up in the same conversation** with multi-turn context: add `--chat last` from the second request onward.
+- The user uploaded an arena.ai cookies file and wants to use that authenticated session to ask a question.
+- The task needs Arena Agent's long-running capabilities (research, multi-step operations, file generation), rather than a one-off local answer.
 
-不适用：只是普通问答（直接答更快）；用户要的是本机浏览器操作（用 `browser_exec`）。
+Do not use this for ordinary questions that can be answered directly, or when the user wants to operate the local browser (use `browser_exec`).
 
 ## Quick Reference
 
-| 场景 | 命令 |
+| Scenario | Command |
 | --- | --- |
-| 用户上传了 cookies 文件 | `arena --cookies "<文件>" ask "<用户原话>"` |
-| 已有会话（之前导入过 cookies） | `arena ask "<用户原话>"` |
-| 想拿结构化结果 | 加 `--json`（`{ok, identity, data, meta}`，`data` 含 `answer`/`url`/`chat_id`/`elapsed_seconds`） |
-| 只要回答那一句 | 加 `--jq '.data.answer'`（不必再自己解析 JSON） |
-| 任务很慢、不想阻塞 | `arena ask --no-wait "…"` → `arena jobs result last`（见下） |
-| 发到聊天软件、怕太长 | 加 `--max-chars 3500`（超长自动截断并附会话链接） |
-| 在已有会话里接着问（多轮） | `arena ask --chat last "<用户原话>"` · 也可 `--chat <chat_id>` 或 `--chat 1`（chat list 的序号） |
-| 想边跑边看进度 | 加 `--stream`（增量打到 stderr，stdout 仍只有最终回答） |
-| 先看会发生什么、不执行 | 任何写操作加 `--dry-run` |
-| 会话还能用吗 | `arena check` |
-| 一眼看全状态（不用开浏览器） | `arena status` |
-| 最近聊了些什么 | `arena chat list` / `arena chat last` |
-| 看 Agent 产出了哪些文件 | `arena workspace list`（默认最近会话，`--chat <id>` 指定） |
-| 看某个文件的内容 | `arena workspace show <path>`（stdout 就是内容） |
-| 把产出文件拿回来 | `arena workspace download <path> --out ./out/` |
-| 打包整个工作区 | `arena workspace download --all --out ws.zip` |
-| 内网 / 需要代理 | `--proxy http://127.0.0.1:7890`（或 `arena config set proxy …`） |
-| 换一套登录态（多账号） | `arena profile create work --from <cookies> && arena profile use work` |
-| 查某命令的参数/风险等级 | `arena schema ask` / `arena schema`（agent 自省用） |
-| 环境体检 | `arena doctor` |
-| 没有 `arena` 命令、也没 cookies | `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py login --email <邮箱> --headed --wait 300` |
+| User uploaded a cookies file | `arena --cookies "<file>" ask "<user's exact request>"` |
+| Existing session (cookies imported previously) | `arena ask "<user's exact request>"` |
+| Structured result | Add `--json` (`{ok, identity, data, meta}`; `data` contains `answer`/`url`/`chat_id`/`elapsed_seconds`) |
+| Answer only | Add `--jq '.data.answer'` (no need to parse the JSON yourself) |
+| Slow task without blocking | `arena ask --no-wait "…"` → `arena jobs result last` (see below) |
+| Send to a chat app with a length limit | Add `--max-chars 3500` (long answers are truncated and include the conversation URL) |
+| Follow up in an existing conversation | `arena ask --chat last "<user's exact request>"`; `--chat <chat_id>` and `--chat 1` (index from chat list) also work |
+| Watch progress while it runs | Add `--stream` (increments go to stderr; stdout still contains only the final answer) |
+| Preview without executing | Add `--dry-run` to any write operation |
+| Check whether the session works | `arena check` |
+| View all status at a glance without a browser | `arena status` |
+| View recent conversations | `arena chat list` / `arena chat last` |
+| See files generated by the Agent | `arena workspace list` (uses the latest conversation by default; specify `--chat <id>`) |
+| Read a file | `arena workspace show <path>` (stdout contains only its contents) |
+| Retrieve generated files | `arena workspace download <path> --out ./out/` |
+| Archive the entire workspace | `arena workspace download --all --out ws.zip` |
+| Private network / proxy required | `--proxy http://127.0.0.1:7890` (or `arena config set proxy …`) |
+| Switch authenticated sessions (multiple accounts) | `arena profile create work --from <cookies> && arena profile use work` |
+| Inspect a command's options/risk level | `arena schema ask` / `arena schema` (for agent introspection) |
+| Check the environment | `arena doctor` |
+| No `arena` command and no cookies | `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py login --email <email> --headed --wait 300` |
 
-若 `arena` 不在 PATH 里，把上表的 `arena X` 换成 `python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py X`（仅 `ask`），
-其它命令用 `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py X`，或先跑一次 `${HERMES_SKILL_DIR}/install.sh`。
+If `arena` is not in PATH, replace `arena X` in the table with `python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py X` (for `ask` only).
+For other commands, use `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py X`, or run `${HERMES_SKILL_DIR}/install.sh` first.
 
-若配置里设过 `skills.config.arena.state_file` / `arena.timeout`，把它们作为 `--state-file` / `--timeout` 传进去。
+If `skills.config.arena.state_file` or `arena.timeout` is configured, pass its value as `--state-file` or `--timeout`.
 
 ## Procedure
 
-1. **收集输入**：用户要交给 Arena 的原始文字。原样传，不要改写、不要自己删减（超长且用户同意时才拆分）。
-2. **选入口**：
-   - 用户这次上传了 cookies 文件 → 用 `--cookies "<绝对路径>"`，它等于「导入会话 + 提问」一步到位；
-   - 之前已经导入过 → 直接跑，不加 `--cookies`。
-3. **执行**：上面的命令给 300~900 秒预算（Arena 侧任务常常要几十秒到几分钟）。**不要并发**，一次只发一条。
-   - 你的工具调用有时限（常见 60~120 秒）时，用后台任务把「发出去」和「取结果」拆成两步，不要一次阻塞到底：
+1. **Collect the input**: the exact text the user wants to send to Arena. Pass it through unchanged; do not rewrite or shorten it (split it only if it is too long and the user agrees).
+2. **Choose an entry point**:
+   - If the user uploaded a cookies file for this request, use `--cookies "<absolute path>"` to import the session and ask in one step.
+   - If cookies were imported previously, run directly without `--cookies`.
+3. **Execute**: allow 300–900 seconds for the commands above (Arena tasks often take tens of seconds to several minutes). **Do not run requests concurrently**; send only one at a time.
+   - If your tool call has a time limit (commonly 60–120 seconds), use a background job to separate submission from result retrieval instead of blocking for the entire task:
 
      ```bash
-     arena ask --no-wait --json "<用户原话>"      # → data.job_id（立刻返回）
-     arena jobs status <job_id>                  # 看还在跑 / 已完成
-     arena jobs result <job_id>                  # 取回答（= stdout 回答正文）
+     arena ask --no-wait --json "<user's exact request>"  # → data.job_id (returned immediately)
+     arena jobs status <job_id>                          # Check whether it is running or complete
+     arena jobs result <job_id>                          # Retrieve the answer (answer text on stdout)
      ```
 
-     `job_id` 也可以写 `last`：`arena jobs result last`。日志在 `arena jobs logs <job_id>`。
-4. **交付**：stdout 就是回答正文，**原样转给用户**。
-   - 多轮：用户接着追问时用 `arena ask --chat last "…"`（`--chat <chat_id>` / `--chat <序号>` 也可），
-     这样 Arena 侧保留上下文，不用把上一轮内容再抄一遍；
-   - 想让用户看到进度：加 `--stream`，中间过程走 **stderr**（不会污染 stdout 的回答正文，
-     `--json` 同时用也没问题）。工具本身不支持"逐 token 回传"，这是轮询页面的增量输出。
-   - 长回答（> 3500 字）：先给结论摘要 + `url` 会话链接，问用户要不要全文；
-   - 带 `--json` 时把 `answer` 给用户，`url` 留在回复里方便回溯。
-5. **失败处理**：命令会打印 `❌ <CODE>: <建议>` 并以非 0 退出。按下面的表处理，不要重复盲目重试。
+     `job_id` can also be `last`: `arena jobs result last`. View logs with `arena jobs logs <job_id>`.
+4. **Deliver**: stdout contains the answer; **relay it to the user unchanged**.
+   - Multi-turn: use `arena ask --chat last "…"` for follow-ups (`--chat <chat_id>` and `--chat <index>` also work).
+     Arena retains the context, so there is no need to repeat the previous turn.
+   - To show progress, add `--stream`. Intermediate output goes to **stderr**, leaving the answer on stdout clean;
+     it can be combined with `--json`. The tool does not support token-by-token callbacks; these increments come from polling the page.
+   - Long answers (> 3500 characters): provide a summary and the conversation `url`, then ask whether the user wants the full text.
+   - With `--json`, give the user `answer` and retain `url` in your reply for reference.
+5. **Handle failures**: the command prints `❌ <CODE>: <hint>` and exits nonzero. Follow the table below instead of retrying blindly.
 
 ## Pitfalls
 
-| 现象 | 含义 | 处理 |
+| Symptom | Meaning | Action |
 | --- | --- | --- |
-| `❌ LOGIN_REQUIRED` | 会话无效/过期（匿名提问在 Arena 是发不出去的） | 请用户**导出 cookies 文件**再跑 `--cookies`；没有 cookies 才走 `login` |
-| `❌ BLOCKED` | 撞上 Cloudflare 人机校验 | 让用户导出新鲜 cookies（含 `cf_clearance`）；或 `--headed` 由人过一次；降低频率 |
-| `❌ TIMEOUT` | 超过等待上限还在跑 | 加 `--timeout 1800`，或把 `url` 交给用户自己看 |
-| `❌ RATE_LIMITED` | Arena 限流（`create-chat` 返回 429，本账号请求过多/额度用尽） | **别重试**：告诉用户"这个账号被临时限流了，等几分钟再试"；要立刻继续就换一份 cookies（`arena profile create work --from <cookies> --yes`） |
-| `❌ UI_CHANGED` + 用 `--chat` 时 | 会话页底部的「Was this task successful?」反馈卡顶掉了输入框 | 已自动关闭（Esc / ×）；仍失败就 `--headed` 看一眼 |
-| `❌ UI_CHANGED` | 页面改版，选择器失效 | 见 `references/troubleshooting.md`，改 `~/.arena-cli/config.json` |
-| `❌ SEND_FAILED` | 消息没提交 | 重试一次；再失败用 `--headed` 观察 |
-| `❌ BAD_INPUT` | cookies 文件格式不认识 / 没给内容 | 支持 Netscape `cookies.txt`、EditThisCookie JSON、Playwright storage_state |
+| `❌ LOGIN_REQUIRED` | Session is invalid/expired (Arena cannot send anonymous prompts) | Ask the user to **export a cookies file**, then rerun with `--cookies`; use `login` only if no cookies are available |
+| `❌ BLOCKED` | Cloudflare human verification was triggered | Ask for fresh cookies (including `cf_clearance`), use `--headed` for manual verification, or reduce request frequency |
+| `❌ TIMEOUT` | Still running after the wait limit | Add `--timeout 1800`, or give the user the `url` to inspect |
+| `❌ RATE_LIMITED` | Arena rate limit (`create-chat` returned 429; too many requests or quota exhausted for this account) | **Do not retry**: tell the user "This account is temporarily rate-limited; wait a few minutes and try again." To continue immediately, use different cookies (`arena profile create work --from <cookies> --yes`) |
+| `❌ UI_CHANGED` while using `--chat` | The "Was this task successful?" feedback card at the bottom replaced the editor | It is dismissed automatically (Esc / ×); if it still fails, inspect with `--headed` |
+| `❌ UI_CHANGED` | Page changed and selectors no longer match | See `references/troubleshooting.md` and update `~/.arena-cli/config.json` |
+| `❌ SEND_FAILED` | Message was not submitted | Retry once; if it fails again, inspect with `--headed` |
+| `❌ BAD_INPUT` | Unrecognized cookies format or no prompt provided | Supports Netscape `cookies.txt`, EditThisCookie JSON, and Playwright storage_state |
 
-### 结构化错误与风险等级（和 lark-cli 一致的契约）
+### Structured errors and risk levels (same contract as lark-cli)
 
-- 加 `--json`（或 `--jq`）时，stdout 是一个信封：成功 `{"ok": true, "identity": "<profile>", "data": {…}, "meta": {…}}`，
-  失败 `{"ok": false, "identity": …, "error": {"type", "subtype", "message", "hint"}}` 且退出码非 0。
-  **先读 `error.subtype` 决定下一步，`error.hint` 就是要执行的命令**。
-- 每个命令有风险等级：`read`（不动状态）/ `write` / `high-risk-write`（覆盖已有登录态、删 profile）。
-  `high-risk-write` 不带 `--yes` 会被拒绝（退出码 1，`confirmation_required`，hint 里给两条路）——
-  **先问用户**，用户同意后再加 `--yes`，不要自己加。
-- 不确定某个命令怎么调：`arena schema <命令>` 看参数、类型、默认值、风险等级，比翻 README 快。
-- 用户要的成品在 Arena 工作区里（Agent 说"已生成 xxx.md"）时，别自己复述内容：
-  `arena workspace list` 找到路径 → `arena workspace download <path> --out <本地>` 拿回来再交付。
-  只有纯文本内容才用 `arena workspace show`。覆盖本地文件要 `--yes`（先问用户）。
+- With `--json` (or `--jq`), stdout contains an envelope: success is `{"ok": true, "identity": "<profile>", "data": {…}, "meta": {…}}`;
+  failure is `{"ok": false, "identity": …, "error": {"type", "subtype", "message", "hint"}}` with a nonzero exit code.
+  **Read `error.subtype` to decide what to do next; `error.hint` contains the command to run.**
+- Every command has a risk level: `read` (does not change state), `write`, or `high-risk-write` (overwrites an authenticated session or deletes a profile).
+  `high-risk-write` without `--yes` is rejected (exit code 1, `confirmation_required`, with both options in the hint).
+  **Ask the user first**; add `--yes` only after they agree. Never add it yourself.
+- If unsure how to call a command, run `arena schema <command>` to inspect its options, types, defaults, and risk level instead of searching the README.
+- When the requested deliverable is in the Arena workspace (the Agent says "created xxx.md"), do not paraphrase it:
+  use `arena workspace list` to find its path, then `arena workspace download <path> --out <local path>` to retrieve it.
+  Use `arena workspace show` only for plain-text content. Overwriting a local file requires `--yes` (ask the user first).
 
-其它注意：
-- **绝不要**把 `state.json` 或 cookies 值回显到对话里，那是账号凭证（脚本本身也只打印 cookie 名字）。
-- 用户没给 cookies 又催结果时，先说明「需要一次登录态」，别反复试。
-- 只在用户本人授权下操作其账号；串行、低频使用。
+Other precautions:
+- **Never** expose `state.json` or cookie values in a conversation; they are account credentials (the scripts themselves print only cookie names).
+- If the user has not supplied cookies but asks for results, explain that a one-time login is required instead of retrying repeatedly.
+- Operate an account only with its owner's authorization; use the tool serially and infrequently.
 
 ## Verification
 
 ```bash
-# 会话可用性（不打扰任何人）
+# Check the session without disturbing anyone
 arena check
 
-# 端到端冒烟：应当返回 ok:true 且 answer 是 PONG
+# End-to-end smoke test: should return ok:true with answer PONG
 arena ask --json "Reply with exactly one word: PONG"
 ```
 
-成功标志：`arena_ask.py` 退出码 `0`，stdout 非空且不含 `Was this task successful?`/`Copy` 这类页面 UI 文案。
-另有 `arena status`（离线秒回）可先确认登录态，避免白等一次浏览器启动。
+Success means `arena_ask.py` exits with `0`, stdout is nonempty, and it contains no page UI text such as `Was this task successful?` or `Copy`.
+You can also run `arena status` for an immediate offline check of the session before starting a browser.
 
-退出码：`0` 成功 · `1` 一般错误/需要确认 · `2` 未登录 · `3` 发送失败 · `4` 超时 · `5` 页面改版 ·
-`6` 人机校验 · **`7` 被限流（429）** · `64` 用法错误。
+Exit codes: `0` success · `1` general error/confirmation required · `2` login required · `3` send failed · `4` timeout · `5` page changed ·
+`6` human verification · **`7` rate limited (429)** · `64` usage error.

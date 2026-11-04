@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-mock_server.py — 本地假站点，用来端到端验证 arena_agent.py 的自动化逻辑。
+mock_server.py — local fake site, used to verify the automation logic of arena_agent.py end to end.
 
-它尽量复刻 arena.ai/agent 的 DOM 结构：
-  * 输入框：<div class="tiptap ProseMirror" contenteditable="true">
-  * 发送按钮：<button aria-label="Send message">
-  * 首次进入的 Terms 弹窗（role=dialog + "Terms of Use" + Agree 按钮）
-  * 未登录时点发送 -> 弹出 "Log In or Create Account"（Google / email 两种入口）
-  * 登录后发送 -> 用户气泡 + 助手消息流式输出（带 Stop 按钮）
+It closely replicates the DOM structure of arena.ai/agent:
+  * Input box: <div class="tiptap ProseMirror" contenteditable="true">
+  * Send button: <button aria-label="Send message">
+  * Terms dialog shown on first visit (role=dialog + "Terms of Use" + Agree button)
+  * When not logged in, clicking send -> "Log In or Create Account" pops up (Google / email entry points)
+  * After logging in, sending -> user bubble + streamed assistant output (with a Stop button)
 
-用法：python tests/mock_server.py [--port 8765]
+Usage: python tests/mock_server.py [--port 8765]
 """
 
 from __future__ import annotations
@@ -41,9 +41,9 @@ PAGE = """<!DOCTYPE html>
  .hidden{{display:none!important}}
 </style></head><body>
 <nav id="sidebar">
-  <a href="/agent/chat-aaaaaaaa-0001">用上传的 cookies 提问</a>
-  <a href="/agent/chat-bbbbbbbb-0002">多行中文 prompt 测试</a>
-  <a href="/agent/chat-cccccccc-0003">长文本与特殊字符</a>
+  <a href="/agent/chat-aaaaaaaa-0001">Ask with the uploaded cookies</a>
+  <a href="/agent/chat-bbbbbbbb-0002">Multi-line prompt test (non-ASCII)</a>
+  <a href="/agent/chat-cccccccc-0003">Long text and special characters</a>
   <a href="/history/search">Search</a>
 </nav>
 <div id="ws" class="max-h-[400px] border-border-medium bg-surface-primary flex flex-col overflow-hidden rounded-md border">
@@ -106,10 +106,10 @@ const msgs = document.getElementById('msgs');
 const ed = document.querySelector('.tiptap');
 const login = document.getElementById('login');
 if (loggedIn) document.getElementById('acct').innerHTML =
-  '<button aria-label="Account menu">Ava</button>';   // 登录后才有的账号入口
+  '<button aria-label="Account menu">Ava</button>';   // Account entry that only appears after login
 document.getElementById('terms').classList.remove('hidden');
 document.getElementById('agree').onclick = () => {{
-  document.getElementById('terms').remove();          // 与线上一致：关闭即卸载
+  document.getElementById('terms').remove();          // Matches production: closing it unmounts it
   fetch('/agree', {{method:'POST'}});
 }};
 document.getElementById('emailBtn').onclick = () => {{
@@ -119,9 +119,9 @@ document.getElementById('emailBtn').onclick = () => {{
     body: JSON.stringify({{email:v}})}}).then(() => location.reload());
 }};
 
-// DOM 结构对齐真实的 arena.ai：
-//   每轮 = [data-agent-transcript-message]，用户轮内含 [data-user-message-body-row]，
-//   正文在 .prose，时间戳/反馈等 UI 噪音在 .prose 之外。
+// The DOM structure matches the real arena.ai:
+//   each turn = [data-agent-transcript-message]; a user turn contains [data-user-message-body-row],
+//   the body is in .prose, and UI noise such as timestamps and feedback sits outside .prose.
 function addMsg(role, text) {{
   const d = document.createElement('div');
   d.setAttribute('data-agent-transcript-message', 'true');
@@ -144,10 +144,10 @@ function addMsg(role, text) {{
 function send() {{
   const text = ed.innerText.trim();
   if (!text) return;
-  if (!loggedIn) {{ login.classList.remove('hidden'); return; }}   // 登录墙：消息不发出
-  // 真实站点发送前会 POST /nextjs-api/stream/create-chat；限流时这里返回 429
+  if (!loggedIn) {{ login.classList.remove('hidden'); return; }}   // Login wall: the message is not sent
+  // The real site POSTs to /nextjs-api/stream/create-chat before sending; under rate limiting this returns 429
   fetch('/nextjs-api/stream/create-chat', {{method: 'POST'}}).then(r => {{
-    if (!r.ok) {{                       // 服务端拒绝：把乐观渲染的消息整条撤回（复刻线上行为）
+    if (!r.ok) {{                       // Server rejected it: retract the optimistically rendered message entirely (replicates production)
       msgs.innerHTML = '';
       ed.innerText = text;
       return;
@@ -164,14 +164,14 @@ function doSend(text) {{
   stop.setAttribute('aria-label', 'Stop response');
   stop.textContent = 'Stop';
   document.body.appendChild(stop);
-  const answer = 'ECHO[' + text.replace(/\\n/g, ' / ') + '] 这是模拟的 Agent 回答。';
+  const answer = 'ECHO[' + text.replace(/\\n/g, ' / ') + '] This is a simulated Agent answer.';
   let i = 0;
   const timer = setInterval(() => {{
     out.textContent = answer.slice(0, ++i);
     if (i >= answer.length) {{ clearInterval(timer); stop.remove(); }}
   }}, 12);
 }}
-// 复刻线上：会话页（/agent/<id>）底部是「Was this task successful?」反馈卡，输入框被它顶掉
+// Replicates production: the bottom of the conversation page (/agent/<id>) shows a "Was this task successful?" feedback card that pushes the input box out of view
 const feedback = document.getElementById('feedback');
 const composerRow = document.querySelector('.row');
 const isChatPage = /^\\/agent\\/[^/]+/.test(location.pathname);
@@ -191,9 +191,9 @@ ed.addEventListener('keydown', e => {{
 
 HTML = PAGE.replace("{{", "{").replace("}}", "}")
 
-# 假的工作区文件：cas key -> (zip 内路径, 内容, content-type)
+# Fake workspace files: cas key -> (path inside the zip, content, content-type)
 WORKSPACE_FILES: dict[str, tuple[str, bytes, str]] = {
-    "note": ("uploads/note.txt", "hello from mock\n第二行\n".encode(), "text/plain; charset=utf-8"),
+    "note": ("uploads/note.txt", "hello from mock\nsecond line\n".encode(), "text/plain; charset=utf-8"),
     "readme": ("hello.md", "# Mock workspace\n\n- item\n".encode(), "text/markdown; charset=utf-8"),
     "img": ("image.png", bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 12, "image/png"),
 }
@@ -213,7 +213,7 @@ def _workspace_zip() -> bytes:
 class Handler(BaseHTTPRequestHandler):
     state = {"terms_ok": False, "logged_in": False, "emails": [], "rate_limit": False}
 
-    def log_message(self, *_a):  # 安静点
+    def log_message(self, *_a):  # quiet
         pass
 
     def _html(self, body: str, code: int = 200) -> None:
@@ -237,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
         cls = type(self)
         cookie = self.headers.get("cookie") or ""
         cls.state["logged_in"] = "mock_session=1" in cookie
-        # 工作区文件：/api/chat/workspace/cas/user/<key>
+        # Workspace file: /api/chat/workspace/cas/user/<key>
         if self.path.startswith("/api/chat/workspace/cas/user/"):
             key = self.path.rsplit("/", 1)[-1].split("?")[0]
             item = WORKSPACE_FILES.get(key)
@@ -247,12 +247,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._raw(item[1], item[2])
             return
-        # 整个工作区打包：/api/chat/<chat>/workspace/<id>/download
+        # Whole workspace packaged: /api/chat/<chat>/workspace/<id>/download
         if "/workspace/" in self.path and self.path.endswith("/download"):
             self._raw(_workspace_zip(), "application/zip",
                       {"content-disposition": 'attachment; filename="workspace.zip"'})
             return
-        # /agent?ratelimit=1 -> 之后每次发送都返回 429（复刻真实站点的限流）
+        # /agent?ratelimit=1 -> every later send returns 429 (replicates the real site's rate limiting)
         if "ratelimit=1" in self.path:
             cls.state["rate_limit"] = True
         elif "ratelimit=0" in self.path:
@@ -283,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = {}
             cls.state["emails"].append(body.get("email"))
             cls.state["logged_in"] = True
-            # 关键：真实站点登录成功后写的是 httpOnly cookie，这里用普通 cookie 模拟
+            # Key point: the real site writes an httpOnly cookie after login; a plain cookie is used here to simulate it
             extra["Set-Cookie"] = "mock_session=1; Path=/; Max-Age=2592000; SameSite=Lax"
         self.send_response(204)
         for k, v in extra.items():

@@ -1,4 +1,4 @@
-"""arena config list|get|set|unset|path —— 读写 ~/.arena-cli/config.json。"""
+"""arena config list|get|set|unset|path — read and write ~/.arena-cli/config.json."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from ..config import SETTABLE, read_config, write_config
 
 
 def _coerce(raw: str):
-    """命令行给的都是字符串，按 JSON 规则还原类型（123 / true / ["a"] / 文本）。"""
+    """Command-line values are strings; restore their type using JSON rules (123 / true / ["a"] / plain text)."""
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -24,8 +24,8 @@ def run_list(ctx, args) -> int:
 
     def human() -> None:
         ctx.ui.kv([(k, v) for k, v in data["values"].items()],
-                  title=f"配置（{ctx.paths.config_file}）")
-        ctx.ui.kv(list(data["effective"].items()), title="\n当前生效")
+                  title=f"Configuration ({ctx.paths.config_file})")
+        ctx.ui.kv(list(data["effective"].items()), title="\nEffective now")
 
     return ctx.emit(data, human=human)
 
@@ -33,7 +33,7 @@ def run_list(ctx, args) -> int:
 def run_get(ctx, args) -> int:
     key = args.key
     if key not in SETTABLE:
-        ctx.ui.fail("BAD_INPUT", f"未知配置项：{key}", "可用项：" + ", ".join(sorted(SETTABLE)))
+        ctx.ui.fail("BAD_INPUT", f"Unknown configuration key: {key}", "Available keys: " + ", ".join(sorted(SETTABLE)))
         return 1
     value = ctx.get(key)
     return ctx.emit({key: value}, human=lambda: print(
@@ -43,19 +43,19 @@ def run_get(ctx, args) -> int:
 def run_set(ctx, args) -> int:
     key = args.key
     if key not in SETTABLE:
-        ctx.ui.fail("BAD_INPUT", f"未知配置项：{key}", "可用项：" + ", ".join(sorted(SETTABLE)))
+        ctx.ui.fail("BAD_INPUT", f"Unknown configuration key: {key}", "Available keys: " + ", ".join(sorted(SETTABLE)))
         return 1
     if ctx.dry_run():
         return ctx.emit({"key": key, "value": _coerce(args.value),
                          "config_file": str(ctx.paths.config_file)}, dry_run=True,
                         human=lambda: ctx.ui.info(
-                            f"[dry-run] 会把 {key} 设为 {args.value} → {ctx.paths.config_file}"))
+                            f"[dry-run] would set {key} to {args.value} → {ctx.paths.config_file}"))
 
     data = read_config(ctx.paths.config_file)
     data.pop("_invalid", None)
     value = _coerce(args.value)
     if key == "selectors" and not isinstance(value, dict):
-        ctx.ui.fail("BAD_INPUT", "selectors 必须是 JSON 对象", '例：arena config set selectors \'{"editor_selectors":["..."]}\'')
+        ctx.ui.fail("BAD_INPUT", "selectors must be a JSON object", 'Example: arena config set selectors \'{"editor_selectors":["..."]}\'')
         return 1
     data[key] = value
     write_config(ctx.paths.config_file, data)
@@ -67,11 +67,11 @@ def run_set(ctx, args) -> int:
 def run_unset(ctx, args) -> int:
     data = read_config(ctx.paths.config_file)
     if args.key not in data:
-        ctx.ui.warn(f"{args.key} 未设置，无需删除")
+        ctx.ui.warn(f"{args.key} is not set; nothing to remove")
         return 0
     data.pop(args.key, None)
     write_config(ctx.paths.config_file, data)
-    ctx.ui.ok(f"已删除 {args.key}（回到默认值）")
+    ctx.ui.ok(f"Removed {args.key} (reverted to default)")
     return 0
 
 

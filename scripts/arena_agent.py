@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""向后兼容入口：老命令 `scripts/arena_agent.py <login|ask|check|...>` 仍然可用。
+"""Backward-compatible entry point: the legacy command `scripts/arena_agent.py <login|ask|check|...>` still works.
 
-等价的现代写法：`arena <命令>`（见 arena/cli.py）。
+Modern equivalent: `arena <command>` (see arena/cli.py).
 """
 import sys
 from pathlib import Path

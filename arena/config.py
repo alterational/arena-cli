@@ -1,13 +1,13 @@
-"""配置与 profile 解析。
+"""Configuration and profile resolution.
 
-优先级（高 → 低）：命令行 flag > 环境变量 > 配置文件 > 内置默认。
-配置文件：`~/.arena-cli/config.json`（或 --config 指定）。
-profile：一个 profile = 一套登录会话（state.json + 浏览器用户目录），可以在多账号之间切换。
+Precedence (high → low): command-line flag > environment variable > configuration file > built-in default.
+Configuration file: `~/.arena-cli/config.json` (or specified with --config).
+Profile: one profile = one login session (state.json + browser user-data directory); you can switch between accounts.
 
     ~/.arena-cli/
-      config.json              # 全局设置
+      config.json              # Global settings
       state.json  prof/        # profile "default"
-      profiles/<name>/state.json,prof/   # 其他 profile
+      profiles/<name>/state.json,prof/   # Other profiles
 """
 
 from __future__ import annotations
@@ -22,17 +22,17 @@ from typing import Any, Optional
 DEFAULTS: dict[str, Any] = {
     "base_url": "https://arena.ai",
     "agent_path": "/agent",
-    "timeout": 900,          # 等待 Agent 跑完的上限（秒）
-    "stable": 2.5,           # 文本稳定多久算完成
+    "timeout": 900,          # Upper limit (seconds) for waiting for the Agent to finish
+    "stable": 2.5,           # How long text must stay unchanged to count as complete
     "profile": "default",
     "format": "text",        # text | json
     "color": True,
-    "max_chars": 0,          # 输出长回答时截断（0 = 不截断）
-    "selectors": {},         # 透传给引擎的选择器覆盖
-    "proxy": "",             # 所有请求走这个代理（http/https/socks5，带 user:pass 也支持）
+    "max_chars": 0,          # Truncate long answers when printing (0 = no truncation)
+    "selectors": {},         # Selector overrides passed through to the engine
+    "proxy": "",             # Route all requests through this proxy (http/https/socks5; user:pass is also supported)
 }
 
-# 可以 arena config set 的键（防手滑写错键名）
+# Keys that can be set with arena config set (prevents typos in key names)
 SETTABLE = {"base_url", "agent_path", "timeout", "stable", "profile", "format",
             "color", "max_chars", "selectors", "proxy"}
 
@@ -49,7 +49,7 @@ def _mtime(path: Path) -> float:
 
 
 def _merge_tree(src: Path, dst: Path) -> None:
-    """把 src 里的东西并进 dst：缺的搬过去，同名文件留更新的那个。"""
+    """Merge the contents of src into dst: move missing items over; for same-named files, keep the newer one."""
     for item in list(src.iterdir()):
         target = dst / item.name
         try:
@@ -57,12 +57,12 @@ def _merge_tree(src: Path, dst: Path) -> None:
                 target.mkdir(parents=True, exist_ok=True)
                 _merge_tree(item, target)
             elif target.exists() and _mtime(item) <= _mtime(target):
-                continue                      # 目标更新，保留目标
+                continue                      # Target is newer; keep the target
             else:
-                target.unlink(missing_ok=True)  # 旧文件不如新文件，覆盖
+                target.unlink(missing_ok=True)  # The old file is older than the new one; overwrite
                 item.replace(target)
         except OSError:
-            continue                          # 单个文件搬不动就算了（权限/占用）
+            continue                          # Skip any single file that cannot be moved (permissions / in use)
 
 
 def _prune_empty(root: Path) -> None:
@@ -79,13 +79,13 @@ def _prune_empty(root: Path) -> None:
 
 
 def _relocate_legacy_home(home: Path) -> None:
-    """把 2.3.x 之前的 `~/.arena-agent` 并入 `~/.arena-cli`，只做一次。
+    """Merge the pre-2.3.x `~/.arena-agent` into `~/.arena-cli`, only once.
 
-    两种常见情况都要照顾：
-      * 新目录还不存在 → 整个目录改名（最快，登录态和配置原样带走）
-      * 新目录已经被建出来了（先跑过其他命令）→ 逐项合并，缺的文件搬过去，
-        同名文件留 mtime 更新的那个，所以不会把已有登录态盖掉
-    搬完在 home 里写个标记，之后不再重扫 chromium 的大目录。
+    Two common cases are handled:
+      * The new directory does not exist yet → rename the whole directory (fastest; login session and config carry over unchanged)
+      * The new directory has already been created (another command ran first) → merge item by item: missing files are moved over,
+        and for same-named files the one with the newer mtime is kept, so an existing login session is never overwritten
+    After migration, a marker is written in home so the large chromium directories are not rescanned later.
     """
     if not LEGACY_HOME.is_dir() or (home / MIGRATION_MARKER).exists():
         return
@@ -107,10 +107,10 @@ def _relocate_legacy_home(home: Path) -> None:
 
 
 def arena_home() -> Path:
-    """数据目录：`~/.arena-cli`（`ARENA_HOME` 可覆盖）。
+    """Data directory: `~/.arena-cli` (can be overridden with `ARENA_HOME`).
 
-    2.3.x 之前叫 `~/.arena-agent`：第一次运行会自动迁移（改名或逐项合并），
-    登录态、配置、浏览器 profile 都不丢。显式给了 `ARENA_HOME` 就不迁移。
+    Before 2.3.x it was called `~/.arena-agent`: the first run migrates it automatically (rename or item-by-item merge),
+    so login sessions, configuration, and browser profiles are all preserved. Explicitly setting `ARENA_HOME` disables migration.
     """
     env = os.environ.get("ARENA_HOME")
     if env:
@@ -153,7 +153,7 @@ class Paths:
 
 
 def profile_paths(name: str, home: Optional[Path] = None) -> tuple[Path, Path]:
-    """profile -> (state_file, profile_dir)。default 沿用旧路径，保证向后兼容。"""
+    """profile -> (state_file, profile_dir). "default" keeps the legacy paths for backward compatibility."""
     home = home or arena_home()
     if name in ("", "default"):
         return home / "state.json", home / "prof"
@@ -163,7 +163,7 @@ def profile_paths(name: str, home: Optional[Path] = None) -> tuple[Path, Path]:
 
 @dataclass
 class Context:
-    """命令运行时需要的一切：配置、路径、UI。"""
+    """Everything a command needs at runtime: configuration, paths, and UI."""
 
     cfg: dict[str, Any]
     paths: Paths
@@ -172,11 +172,11 @@ class Context:
     ui: Any = None
     args: Any = None
 
-    # 便捷访问
+    # Convenient access
     def get(self, key: str, default: Any = None) -> Any:
         return self.cfg.get(key, default)
 
-    # ---- 输出信封：{ok, identity, data, meta}（对齐 lark-cli） ----------------
+    # ---- Output envelope: {ok, identity, data, meta} (aligned with lark-cli) ----------------
     def emit(self, data: dict[str, Any], human=None, dry_run: bool = False,
              meta: Optional[dict[str, Any]] = None) -> int:
         jq_expr = getattr(self.args, "jq", None) if self.args is not None else None
@@ -210,7 +210,7 @@ def _env(name: str, default: Any = None) -> Any:
 
 
 def build_context(args: Any, ui: Any) -> Context:
-    """把 flag / env / 文件 / 默认值合成一个 Context。"""
+    """Combine flags / environment / file / defaults into a single Context."""
     home = arena_home()
     cfg_file = config_path(getattr(args, "config", None))
     file_cfg = read_config(cfg_file)
@@ -218,7 +218,7 @@ def build_context(args: Any, ui: Any) -> Context:
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in file_cfg.items() if not k.startswith("_")})
 
-    # 环境变量
+    # Environment variables
     if _env("ARENA_BASE_URL"):
         cfg["base_url"] = _env("ARENA_BASE_URL")
     if _env("ARENA_PROFILE"):
@@ -226,12 +226,12 @@ def build_context(args: Any, ui: Any) -> Context:
     if _env("NO_COLOR"):
         cfg["color"] = False
 
-    # 代理：flag > 配置文件 > ARENA_PROXY > 系统代理环境变量
+    # Proxy: flag > configuration file > ARENA_PROXY > system proxy environment variables
     if not cfg.get("proxy"):
         cfg["proxy"] = (_env("ARENA_PROXY") or _env("HTTPS_PROXY") or _env("https_proxy")
                         or _env("ALL_PROXY") or _env("all_proxy") or "")
 
-    # 命令行 flag
+    # Command-line flags
     for flag, key in (("base_url", "base_url"), ("timeout", "timeout"), ("stable", "stable"),
                       ("profile", "profile"), ("max_chars", "max_chars"), ("proxy", "proxy")):
         value = getattr(args, flag, None)
@@ -252,7 +252,7 @@ def build_context(args: Any, ui: Any) -> Context:
     paths = Paths(home=home, config_file=cfg_file, profile=profile,
                   state_file=state_file, profile_dir=profile_dir)
 
-    # 引擎配置：默认值 <- 文件里的 selectors/超时 <- 最终 base_url
+    # Engine configuration: defaults <- selectors/timeouts in the file <- final base_url
     from . import engine as engine_mod
 
     overrides: dict[str, Any] = {

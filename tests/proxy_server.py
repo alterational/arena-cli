@@ -1,14 +1,14 @@
-"""tests/proxy_server.py —— 极简正向代理，专门用来验证 `arena --proxy` 真的走了代理。
+"""tests/proxy_server.py — minimal forward proxy, used specifically to verify that `arena --proxy` really goes through the proxy.
 
-只处理明文 HTTP（`GET http://host:port/path` 这种绝对 URI 形式），够测 mock 站点；
-浏览器访问 http:// 站点时的代理行为就是这个形态。CONNECT（https）这里不实现。
+Only handles plain HTTP (absolute-URI form such as `GET http://host:port/path`); enough to test the mock site;
+a browser accessing an http:// site uses exactly this form. CONNECT (https) is not implemented here.
 
-用法：
+Usage:
 
     from proxy_server import serve
     srv = serve(0); threading.Thread(target=srv.serve_forever, daemon=True).start()
-    port = srv.server_address[1]           # 然后 --proxy http://127.0.0.1:<port>
-    srv.state["requests"]                  # 代理收到的请求列表
+    port = srv.server_address[1]           # then pass --proxy http://127.0.0.1:<port>
+    srv.state["requests"]                  # list of requests the proxy received
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from urllib.parse import urlsplit
 class Handler(BaseHTTPRequestHandler):
     state: dict[str, list] = {"requests": [], "errors": []}
 
-    def log_message(self, *_a):  # 安静
+    def log_message(self, *_a):  # quiet
         pass
 
     def do_GET(self):  # noqa: N802
         cls = type(self)
         url = self.path
         if not url.lower().startswith("http://"):
-            # 非绝对 URI：说明不是被当代理用
+            # Not an absolute URI: it was not being used as a proxy
             cls.state["errors"].append(f"not-proxy-request: {url[:80]}")
             self.send_response(400)
             self.end_headers()
@@ -48,7 +48,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("content-length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-        except urllib.error.HTTPError as exc:  # 透传状态码
+        except urllib.error.HTTPError as exc:  # pass the status code through
             self.send_response(exc.code)
             self.send_header("content-length", "0")
             self.end_headers()
@@ -61,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port: int = 0) -> ThreadingHTTPServer:
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    type(srv).state = Handler.state  # 便于测试里 srv.state[...]
+    type(srv).state = Handler.state  # so tests can use srv.state[...]
     Handler.state["requests"].clear()
     Handler.state["errors"].clear()
     return srv

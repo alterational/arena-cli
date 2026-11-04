@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-run_entry_tests.py —— 验证「Hermes 技能入口」这一层
+run_entry_tests.py —— verifies the "Hermes skill entry" layer
 
-覆盖：
-  1. arena_ask.py 成功时 stdout **只有回答正文**（没有 JSON、没有引擎日志、没有 UI 噪音）
-  2. 失败时输出一行 `❌ CODE: 建议`，退出码可被 Hermes 识别（2 = 需要登录）
-  3. --cookies 一步到位（导入 + 提问）
-  4. --json 结构化字段齐全
-  5. --max-chars 截断并附会话链接
-  6. install.sh 把技能装进 HERMES_HOME，装完 verify_skill.py 仍然合规
-  7. SKILL.md frontmatter/章节合规（scripts/verify_skill.py）
-  8. 数据目录从 ~/.arena-agent 迁到 ~/.arena-cli（只做一次，登录态不丢）
-  9. README / docs 里的相对链接都指向真实存在的文件（文档不要写飞）
+Covers:
+  1. On success, arena_ask.py's stdout contains **only the answer text** (no JSON, engine logs, or UI noise)
+  2. On failure, prints one line `❌ CODE: suggestion`; the exit code can be recognized by Hermes (2 = login required)
+  3. --cookies in one step (import + ask)
+  4. --json output has all structured fields
+  5. --max-chars truncates and appends the session link
+  6. install.sh installs the skill into HERMES_HOME, and verify_skill.py still passes after installation
+  7. SKILL.md frontmatter/sections comply (scripts/verify_skill.py)
+  8. Data directory migrates from ~/.arena-agent to ~/.arena-cli (done only once; login state is not lost)
+  9. Relative links in README / docs all point to files that exist (docs must not drift)
 """
 
 from __future__ import annotations
@@ -56,84 +56,84 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="arena-entry-"))
     common = ["--base-url", base, "--state-file", str(tmp / "state.json")]
 
-    # ---------- 1. 未登录：失败也要"一句话" ----------
-    print("[1] 没有会话时：一行错误 + 退出码 2")
-    r = run([*common, "--profile-dir", str(tmp / "anon"), "你好"])
-    check("退出码 = 2", r.returncode == 2, f"got {r.returncode}: {r.stdout!r}")
-    check("stdout 只有一行 ❌ 提示", r.stdout.strip().count("\n") == 0, r.stdout)
-    check("提示里带 LOGIN_REQUIRED", "LOGIN_REQUIRED" in r.stdout, r.stdout)
-    check("提示里告诉用户下一步（cookies）", "cookies" in r.stdout.lower(), r.stdout)
+    # ---------- 1. Not logged in: failure must also be a "one-liner" ----------
+    print("[1] No session: one error line + exit code 2")
+    r = run([*common, "--profile-dir", str(tmp / "anon"), "Hello"])
+    check("exit code = 2", r.returncode == 2, f"got {r.returncode}: {r.stdout!r}")
+    check("stdout is a single ❌ line", r.stdout.strip().count("\n") == 0, r.stdout)
+    check("message includes LOGIN_REQUIRED", "LOGIN_REQUIRED" in r.stdout, r.stdout)
+    check("message tells the user the next step (cookies)", "cookies" in r.stdout.lower(), r.stdout)
 
-    # ---------- 2. 上传 cookies：一步到位 ----------
-    print("\n[2] --cookies 一步到位（导入 + 提问）")
+    # ---------- 2. Upload cookies: one step ----------
+    print("\n[2] --cookies in one step (import + ask)")
     ns = tmp / "cookies.txt"
     ns.write_text("# Netscape HTTP Cookie File\n\n"
                   "127.0.0.1\tFALSE\t/\tFALSE\t4102444800\tmock_session\t1\n", encoding="utf-8")
     r = run([*common, "--profile-dir", str(tmp / "p1"), "--cookies", str(ns),
-             "帮我总结一下今天的三个待办"])
+             "Summarize my three to-dos for today"])
     answer = r.stdout.strip()
-    check("退出码 = 0", r.returncode == 0, f"{r.returncode}: {r.stdout!r} / {r.stderr[-300:]}")
-    check("stdout 就是回答正文", answer.startswith("ECHO[") and "帮我总结一下今天的三个待办" in answer, answer[:200])
-    check("没有 JSON 花括号", not answer.startswith("{"), answer[:80])
-    check("没有引擎日志混进 stdout", "[arena]" not in answer, answer[:200])
-    check("没有页面 UI 噪音", "Was this task successful?" not in answer and "Copy" not in answer, answer[:200])
+    check("exit code = 0", r.returncode == 0, f"{r.returncode}: {r.stdout!r} / {r.stderr[-300:]}")
+    check("stdout is the answer text", answer.startswith("ECHO[") and "Summarize my three to-dos for today" in answer, answer[:200])
+    check("no JSON braces", not answer.startswith("{"), answer[:80])
+    check("no engine logs mixed into stdout", "[arena]" not in answer, answer[:200])
+    check("no page UI noise", "Was this task successful?" not in answer and "Copy" not in answer, answer[:200])
 
     # ---------- 3. --json ----------
-    print("\n[3] --json 结构化输出")
-    r = run([*common, "--profile-dir", str(tmp / "p1"), "--json", "结构化测试"])
+    print("\n[3] --json structured output")
+    r = run([*common, "--profile-dir", str(tmp / "p1"), "--json", "Structured test"])
     try:
         data = json.loads(r.stdout)
     except json.JSONDecodeError:
         data = {}
-    check("是合法 JSON", isinstance(data, dict) and data.get("ok") is True, r.stdout[:200])
-    check("字段齐全", all(k in data for k in ("answer", "url", "chat_id", "elapsed_seconds")), str(data)[:200])
+    check("is valid JSON", isinstance(data, dict) and data.get("ok") is True, r.stdout[:200])
+    check("all fields present", all(k in data for k in ("answer", "url", "chat_id", "elapsed_seconds")), str(data)[:200])
 
     # ---------- 4. --max-chars ----------
-    print("\n[4] --max-chars 长回答截断")
+    print("\n[4] --max-chars truncates long answers")
     r = run([*common, "--profile-dir", str(tmp / "p1"), "--max-chars", "40",
              "lorem ipsum " * 30])
     out = r.stdout.strip()
-    check("退出码 = 0", r.returncode == 0, r.stdout[:200])
-    check("已截断并标注", "已截断" in out, out[-120:])
-    check("附了会话链接", "http" in out, out[-160:])
+    check("exit code = 0", r.returncode == 0, r.stdout[:200])
+    check("truncated and marked", "truncated" in out, out[-120:])
+    check("session link appended", "http" in out, out[-160:])
 
     # ---------- 5. stdin ----------
-    print("\n[5] stdin 输入（/arena-cli 后面不写参数时）")
-    r = run([*common, "--profile-dir", str(tmp / "p1"), "-"], stdin="来自标准输入的问题")
-    check("stdin 生效", r.returncode == 0 and "来自标准输入的问题" in r.stdout, r.stdout[:200])
+    print("\n[5] stdin input (when no arguments are given after /arena-cli)")
+    r = run([*common, "--profile-dir", str(tmp / "p1"), "-"], stdin="Question from stdin")
+    check("stdin works", r.returncode == 0 and "Question from stdin" in r.stdout, r.stdout[:200])
 
-    # ---------- 6. 安装到 HERMES_HOME ----------
-    print("\n[6] install.sh 装进 HERMES_HOME")
+    # ---------- 6. Install into HERMES_HOME ----------
+    print("\n[6] install.sh into HERMES_HOME")
     fake_home = tmp / "hermes_home"
     env = {**os.environ, "HERMES_HOME": str(fake_home)}
     r = subprocess.run(["bash", str(ROOT / "install.sh")], capture_output=True, text=True, env=env)
     dest = fake_home / "skills" / "arena-cli"
-    check("退出码 = 0", r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
-    check("SKILL.md 已就位", (dest / "SKILL.md").exists())
-    check("入口脚本已就位", (dest / "scripts" / "arena_ask.py").exists())
-    check("维护手册已就位", (dest / "references" / "troubleshooting.md").exists())
-    check("没有把 state.json 打包进去", not list(dest.rglob("state.json")))
-    # 装完之后再自检一遍
+    check("exit code = 0", r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
+    check("SKILL.md in place", (dest / "SKILL.md").exists())
+    check("entry script in place", (dest / "scripts" / "arena_ask.py").exists())
+    check("maintenance manual in place", (dest / "references" / "troubleshooting.md").exists())
+    check("state.json not packaged", not list(dest.rglob("state.json")))
+    # Run the self-check again after installation
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "verify_skill.py"), str(ROOT)],
                        capture_output=True, text=True)
-    check("verify_skill 合规", r.returncode == 0, r.stdout[-300:])
-    # 重复安装应被拒绝
+    check("verify_skill passes", r.returncode == 0, r.stdout[-300:])
+    # Repeated installation should be rejected
     r2 = subprocess.run(["bash", str(ROOT / "install.sh")], capture_output=True, text=True, env=env)
-    check("重复安装被拒绝（需 --force）", r2.returncode != 0, r2.stdout[-200:])
+    check("repeat install rejected (needs --force)", r2.returncode != 0, r2.stdout[-200:])
 
-    # ---------- 7. 斜杠命令名 = name 字段 ----------
-    print("\n[7] 斜杠命令名与 frontmatter 一致")
+    # ---------- 7. Slash command name = name field ----------
+    print("\n[7] Slash command name matches the frontmatter")
     text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     import yaml  # noqa: WPS433
     fm = yaml.safe_load(text.split("---", 2)[1])
-    check("name = arena-cli（即 /arena-cli）", fm.get("name") == "arena-cli", str(fm.get("name")))
-    check("声明了 requires_toolsets: terminal",
+    check("name = arena-cli (i.e. /arena-cli)", fm.get("name") == "arena-cli", str(fm.get("name")))
+    check("declares requires_toolsets: terminal",
           "terminal" in (fm.get("metadata", {}).get("hermes", {}).get("requires_toolsets") or []))
-    check("description 简短（<= 60）", len(fm.get("description", "")) <= 60,
-          f"{len(fm.get('description', ''))} 字符")
+    check("description is short (<= 60)", len(fm.get("description", "")) <= 60,
+          f"{len(fm.get('description', ''))} characters")
 
-    # ---------- 8. 数据目录迁移 ----------
-    print("\n[8] ~/.arena-agent → ~/.arena-cli 迁移")
+    # ---------- 8. Data directory migration ----------
+    print("\n[8] ~/.arena-agent → ~/.arena-cli migration")
     mig = Path(tmp) / "mig"
 
     def migrate(home: Path, code: str = "from arena.config import arena_home; print(arena_home())") -> str:
@@ -141,51 +141,51 @@ def main() -> int:
         return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                               env=env2, cwd=str(ROOT)).stdout.strip()
 
-    # 8a. 新目录不存在 → 整目录改名，state.json 原样带走
+    # 8a. New directory does not exist → rename the whole directory; state.json moves unchanged
     (mig / ".arena-agent").mkdir(parents=True)
     (mig / ".arena-agent" / "state.json").write_text('{"cookies": 1}', encoding="utf-8")
     out = migrate(mig)
-    check("改了名：返回 ~/.arena-cli", out.endswith(".arena-cli"), out)
-    check("state.json 跟着搬过去", (mig / ".arena-cli" / "state.json").read_text() == '{"cookies": 1}')
-    check("旧目录消失", not (mig / ".arena-agent").exists())
-    check("写了迁移标记", (mig / ".arena-cli" / ".migrated-from-arena-agent").exists())
+    check("renamed: returns ~/.arena-cli", out.endswith(".arena-cli"), out)
+    check("state.json moved along", (mig / ".arena-cli" / "state.json").read_text() == '{"cookies": 1}')
+    check("old directory gone", not (mig / ".arena-agent").exists())
+    check("migration marker written", (mig / ".arena-cli" / ".migrated-from-arena-agent").exists())
 
-    # 8b. 新目录已存在（先跑过别的命令）→ 逐项合并，缺的搬过去、同名留更新的
+    # 8b. New directory already exists (another command ran first) → merge item by item; missing items move over, same-name files keep the newer one
     mig2 = Path(tmp) / "mig2"
     (mig2 / ".arena-cli" / "jobs").mkdir(parents=True)
     (mig2 / ".arena-cli" / "jobs" / "j.json").write_text("{}", encoding="utf-8")
     (mig2 / ".arena-cli" / "config.json").write_text('{"new": true}', encoding="utf-8")
-    os.utime(mig2 / ".arena-cli" / "config.json", (1, 1))          # 目标里的更旧
+    os.utime(mig2 / ".arena-cli" / "config.json", (1, 1))          # the one in the target is older
     (mig2 / ".arena-agent" / "prof" / "Default").mkdir(parents=True)
     (mig2 / ".arena-agent" / "state.json").write_text('{"cookies": 2}', encoding="utf-8")
     (mig2 / ".arena-agent" / "config.json").write_text('{"old": true}', encoding="utf-8")
     (mig2 / ".arena-agent" / "prof" / "Default" / "Cookies").write_text("c", encoding="utf-8")
     migrate(mig2)
-    check("合并后 state.json 到位", (mig2 / ".arena-cli" / "state.json").exists())
-    check("已有的 jobs/ 没被冲掉", (mig2 / ".arena-cli" / "jobs" / "j.json").exists())
-    check("缺的 profile 文件搬过去", (mig2 / ".arena-cli" / "prof" / "Default" / "Cookies").exists())
-    check("同名文件留更新的那个", (mig2 / ".arena-cli" / "config.json").read_text() == '{"old": true}',
+    check("state.json in place after merge", (mig2 / ".arena-cli" / "state.json").exists())
+    check("existing jobs/ not overwritten", (mig2 / ".arena-cli" / "jobs" / "j.json").exists())
+    check("missing profile files moved over", (mig2 / ".arena-cli" / "prof" / "Default" / "Cookies").exists())
+    check("same-name file keeps the newer one", (mig2 / ".arena-cli" / "config.json").read_text() == '{"old": true}',
           (mig2 / ".arena-cli" / "config.json").read_text())
 
-    # 8c. 迁移只做一次（第二次不再重扫）
-    check("旧目录已搬空并清掉", not (mig2 / ".arena-agent").exists())
+    # 8c. Migration runs only once (not rescanned the second time)
+    check("old directory emptied and removed", not (mig2 / ".arena-agent").exists())
     (mig2 / ".arena-agent").mkdir()
     (mig2 / ".arena-agent" / "late.json").write_text("x", encoding="utf-8")
     migrate(mig2)
-    check("只迁一次：后放进旧目录的文件不再搬", not (mig2 / ".arena-cli" / "late.json").exists())
+    check("runs only once: files placed in the old directory later are not moved", not (mig2 / ".arena-cli" / "late.json").exists())
 
-    # 8d. 显式 ARENA_HOME 时不迁移
+    # 8d. No migration when ARENA_HOME is set explicitly
     mig3 = Path(tmp) / "mig3"
     (mig3 / ".arena-agent").mkdir(parents=True)
     env3 = {"HOME": str(mig3), "ARENA_HOME": str(mig3 / "mine"), "PATH": os.environ.get("PATH", "")}
     out = subprocess.run([sys.executable, "-c",
                           "from arena.config import arena_home; print(arena_home())"],
                          capture_output=True, text=True, env=env3, cwd=str(ROOT)).stdout.strip()
-    check("ARENA_HOME 优先", out == str(mig3 / "mine"), out)
-    check("ARENA_HOME 下不动旧目录", (mig3 / ".arena-agent").exists())
+    check("ARENA_HOME takes precedence", out == str(mig3 / "mine"), out)
+    check("old directory untouched under ARENA_HOME", (mig3 / ".arena-agent").exists())
 
-    # ---------- 9. 文档链接 ----------
-    print("\n[9] README / docs 的相对链接")
+    # ---------- 9. Doc links ----------
+    print("\n[9] Relative links in README / docs")
     import re
 
     docs = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")),
@@ -198,18 +198,18 @@ def main() -> int:
             path = (md.parent / target.split("#")[0]).resolve()
             if not path.exists():
                 broken.append(f"{md.relative_to(ROOT)} → {target}")
-    check("链接都有效", not broken, "; ".join(broken))
-    check("README 短（<= 120 行，细节放 docs/）",
+    check("all links valid", not broken, "; ".join(broken))
+    check("README is short (<= 120 lines; details go in docs/)",
           len((ROOT / "README.md").read_text(encoding="utf-8").splitlines()) <= 120,
-          f"{(ROOT / 'README.md').read_text(encoding='utf-8').count(chr(10))} 行")
+          f"{(ROOT / 'README.md').read_text(encoding='utf-8').count(chr(10))} lines")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for topic in ("docs/cli.md", "docs/agent.md", "docs/auth.md",
                   "docs/hermes-skill.md", "docs/development.md", "docs/migration.md"):
-        check(f"README 索引里有 {topic}", topic in readme)
+        check(f"README index includes {topic}", topic in readme)
 
     srv.shutdown()
     shutil.rmtree(tmp, ignore_errors=True)
-    print("\n" + ("全部通过 ✅" if not FAILED else f"失败 {len(FAILED)} 项 ❌: {FAILED}"))
+    print("\n" + ("All passed ✅" if not FAILED else f"{len(FAILED)} failed ❌: {FAILED}"))
     return 0 if not FAILED else 1
 
 

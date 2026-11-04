@@ -1,13 +1,13 @@
-"""arena CLI —— 命令分发、全局参数、风险分级、结构化输出、退出码。
+"""arena CLI — command dispatch, global options, risk levels, structured output, exit codes.
 
-    arena <命令> [子命令] [参数] [全局 flag]
+    arena <command> [subcommand] [arguments] [global flags]
 
-设计参照 lark-cli：
-  * 顶层 help 有 AGENT QUICKSTART，说明 agent 该怎么用
-  * 每条命令标注风险等级 read | write | high-risk-write，高危要 --yes
-  * --json 输出 {ok, identity, data, meta} 信封；错误是 {ok:false, error:{type,subtype,message,hint}}
-  * --jq 过滤 JSON、--dry-run 只预览不执行、--no-wait 挂后台
-  * arena schema <命令> 给 agent 自省参数
+Design inspired by lark-cli:
+  * The top-level help has an AGENT QUICKSTART that explains how an agent should use the tool
+  * Every command is labeled with a risk level: read | write | high-risk-write; high-risk operations require --yes
+  * --json output uses the {ok, identity, data, meta} envelope; errors are {ok:false, error:{type,subtype,message,hint}}
+  * --jq filters JSON, --dry-run previews without executing, --no-wait runs in the background
+  * arena schema <command> lets agents introspect parameters
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from . import __version__
 from .config import SETTABLE, build_context
 from .ui import UI
 
-USAGE_ERROR = 64          # BSD sysexits：用法错误，和业务退出码（2/3/4/5/6）区分
+USAGE_ERROR = 64          # BSD sysexits: usage error, distinguished from business exit codes (2/3/4/5/6)
 
-# 风险分级（对齐 lark-cli 的 read / write / high-risk-write）
+# Risk levels (aligned with lark-cli's read / write / high-risk-write)
 RISK: dict[str, str] = {
     "ask": "write",
     "login": "write",
@@ -60,69 +60,69 @@ RISK: dict[str, str] = {
 }
 
 EXAMPLES = """\
-示例（按推荐顺序）:
-  arena ask "帮我调研三家竞品的定价策略"              # 一条命令完成 提问→等待→取回
-  arena ask --no-wait "跑一个长任务"                  # 挂后台，立刻返回 job_id
-  arena jobs result last                            # 回来看结果
-  arena status                                      # 登录态 + 环境 + 最近任务
-  arena schema ask                                  # 看 ask 的参数/风险/默认值
+Examples (in recommended order):
+  arena ask "Research the pricing strategies of three competitors"   # One command: ask → wait → retrieve
+  arena ask --no-wait "Run a long task"                              # Run in the background; returns job_id immediately
+  arena jobs result last                                             # Come back later to see the result
+  arena status                                                       # Login state + environment + recent jobs
+  arena schema ask                                                   # Parameters / risk / defaults for ask
   arena cookies import ~/uploads/arena.ai_cookies.txt --yes
   arena config set timeout 1800
-  arena workspace list                              # Agent 在这次会话里产出的文件
-  arena workspace show demo.txt                     # 直接看内容
+  arena workspace list                                               # Files the Agent produced in this conversation
+  arena workspace show demo.txt                                      # View contents directly
   arena workspace download demo.txt --out ./demo.txt
-  arena --proxy http://127.0.0.1:7890 ask "..."     # 所有请求走代理
+  arena --proxy http://127.0.0.1:7890 ask "..."                      # Route all requests through a proxy
 """
 
 QUICKSTART = """\
-arena — 用命令行驱动 arena.ai/agent（Agent Mode）
+arena — drive arena.ai/agent (Agent Mode) from the command line
 
-AGENT QUICKSTART（你是 agent？从这里开始）:
-    看有哪些命令:   arena --help
-    看某命令细节:   arena schema <命令>          # 参数、类型、默认值、风险等级
-    提问拿结果:     arena ask "<用户原话>"        # 退出码 0 = 成功，stdout 就是回答
-    长任务别阻塞:   arena ask --no-wait "<…>"  →  arena jobs result last
-    结构化输出:     --json（{ok, identity, data, meta}），--jq '.data.answer' 过滤
-    取产出文件:     arena workspace list → arena workspace download <path> --out .
-    内网/翻墙:       --proxy http://127.0.0.1:7890（或 arena config set proxy …）
-    只预览不执行:   --dry-run
-    风险: 每条命令有 read | write | high-risk-write；high-risk-write 必须加 --yes（先问用户）
-    失败处理: 看 error.subtype 与 error.hint（LOGIN_REQUIRED → arena cookies import）
+AGENT QUICKSTART (Are you an agent? Start here):
+    List commands:          arena --help
+    Command details:        arena schema <command>          # Parameters, types, defaults, risk level
+    Ask and get the result: arena ask "<user's original request>"   # Exit code 0 = success; stdout is the answer
+    Don't block on long tasks: arena ask --no-wait "<…>"  →  arena jobs result last
+    Structured output:      --json ({ok, identity, data, meta}); filter with --jq '.data.answer'
+    Get produced files:     arena workspace list → arena workspace download <path> --out .
+    Intranet / proxy:       --proxy http://127.0.0.1:7890 (or arena config set proxy …)
+    Preview only:           --dry-run
+    Risk: every command has a read | write | high-risk-write level; high-risk-write must include --yes (ask the user first)
+    Failure handling: check error.subtype and error.hint (LOGIN_REQUIRED → arena cookies import)
 """
 
 
 class Parser(argparse.ArgumentParser):
-    """argparse 默认用 2 表示用法错误，会和「需要登录=2」撞车，这里改成 64。"""
+    """argparse uses 2 for usage errors by default, which collides with "login required = 2", so this uses 64 instead."""
 
     def error(self, message: str) -> "None":  # type: ignore[override]
         self.print_usage(sys.stderr)
-        sys.stderr.write(f"arena: 错误: {message}\n提示: `arena --help` 或 `arena schema <命令>`\n")
+        sys.stderr.write(f"arena: error: {message}\nTip: `arena --help` or `arena schema <command>`\n")
         raise SystemExit(USAGE_ERROR)
 
 
 def _add_global(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     S = argparse.SUPPRESS
-    g = p.add_argument_group("全局参数")
-    g.add_argument("--json", action="store_true", default=S, help="输出 {ok, identity, data, meta} 信封")
-    g.add_argument("--format", choices=["text", "json"], default=S, help="输出格式")
-    g.add_argument("--jq", default=S, help="用简化 jq 表达式过滤 JSON，如 '.data.answer'")
-    g.add_argument("-q", "--quiet", action="store_true", default=S, help="只输出结果")
-    g.add_argument("-v", "--verbose", action="store_true", default=S, help="显示调试信息（含浏览器日志）")
-    g.add_argument("--no-color", action="store_true", default=S, help="关闭颜色")
-    g.add_argument("--dry-run", action="store_true", default=S, help="只预览要做什么，不真正执行")
-    g.add_argument("--yes", action="store_true", default=S, help="确认执行 high-risk-write 操作")
-    g.add_argument("--no-wait", action="store_true", default=S, help="ask：挂后台跑，立刻返回 job_id")
-    g.add_argument("--profile", default=S, help="使用哪个 profile（默认 default）")
-    g.add_argument("--config", default=S, help="配置文件路径（默认 ~/.arena-cli/config.json）")
-    g.add_argument("--base-url", default=S, help="站点根地址（默认 https://arena.ai）")
-    g.add_argument("--timeout", type=float, default=S, help="等待 Agent 完成的上限秒数")
-    g.add_argument("--stable", type=float, default=S, help="文本稳定多少秒算完成")
-    g.add_argument("--max-chars", type=int, default=S, help="长回答截断长度（0 = 不截断）")
+    g = p.add_argument_group("global options")
+    g.add_argument("--json", action="store_true", default=S, help="output the {ok, identity, data, meta} envelope")
+    g.add_argument("--format", choices=["text", "json"], default=S, help="output format")
+    g.add_argument("--jq", default=S, help="filter JSON with a simplified jq expression, e.g. '.data.answer'")
+    g.add_argument("-q", "--quiet", action="store_true", default=S, help="output the result only")
+    g.add_argument("-v", "--verbose", action="store_true", default=S, help="show debug information (including browser logs)")
+    g.add_argument("--no-color", action="store_true", default=S, help="disable colors")
+    g.add_argument("--dry-run", action="store_true", default=S, help="only preview what would be done; do not execute")
+    g.add_argument("--yes", action="store_true", default=S, help="confirm execution of a high-risk-write operation")
+    g.add_argument("--no-wait", action="store_true", default=S, help="ask: run in the background and return job_id immediately")
+    g.add_argument("--profile", default=S, help="which profile to use (default: default)")
+    g.add_argument("--config", default=S, help="configuration file path (default: ~/.arena-cli/config.json)")
+    g.add_argument("--base-url", default=S, help="site root URL (default: https://arena.ai)")
+    g.add_argument("--timeout", type=float, default=S, help="maximum seconds to wait for the Agent to finish")
+    g.add_argument("--stable", type=float, default=S, help="seconds of unchanged text required before considering it complete")
+    g.add_argument("--max-chars", type=int, default=S, help="truncation length for long answers (0 = no truncation)")
     g.add_argument("--cookies", default=S,
-                   help="先导入这份 cookies 文件（Netscape .txt / JSON），再执行命令")
-    g.add_argument("--headed", action="store_true", default=S, help="显示浏览器窗口")
+                   help="import this cookies file first (Netscape .txt / JSON), then run the command")
+    g.add_argument("--headed", action="store_true", default=S, help="show the browser window")
     g.add_argument("--proxy", default=S,
-                   help="所有请求走这个代理：http://host:port / socks5://host:port / http://user:pass@host:port")
+                   help="route all requests through this proxy: http://host:port / socks5://host:port / http://user:pass@host:port")
     g.add_argument("--state-file", default=S, help=argparse.SUPPRESS)
     g.add_argument("--profile-dir", default=S, help=argparse.SUPPRESS)
     return p
@@ -130,10 +130,10 @@ def _add_global(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 def _sub(sub, path: str, help_text: str, description: str = "",
          common: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
-    """path 用点分表示层级（如 cookies.import），但注册的命令名只取最后一段。"""
+    """Dotted paths (e.g. cookies.import) denote hierarchy, but the registered command name is only the last segment."""
     name = path.split(".")[-1]
-    risk = RISK.get(path)                      # 只有登记过的叶子命令才标风险
-    epilog = (f"Risk: {risk}" + ("（需要 --yes 确认）" if risk == "high-risk-write" else "")
+    risk = RISK.get(path)                      # Only registered leaf commands get a risk label
+    epilog = (f"Risk: {risk}" + (" (requires --yes confirmation)" if risk == "high-risk-write" else "")
               ) if risk else ""
     p = sub.add_parser(name, parents=[common], help=help_text,
                        description=description or help_text,
@@ -149,130 +149,130 @@ def build_parser() -> Parser:
     p = Parser(
         prog="arena",
         description=QUICKSTART,
-        epilog=EXAMPLES + "\n退出码: 0 成功 · 1 一般错误 · 2 需要登录 · 3 发送失败 · 4 超时 · "
-                          "5 页面改版 · 6 人机校验 · 64 用法错误\n",
+        epilog=EXAMPLES + "\nExit codes: 0 success · 1 general error · 2 login required · 3 send failed · 4 timeout · "
+                          "5 page changed · 6 human verification · 64 usage error\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     _add_global(p)
-    p.add_argument("--version", action="store_true", default=argparse.SUPPRESS, help="显示版本")
+    p.add_argument("--version", action="store_true", default=argparse.SUPPRESS, help="show version")
 
-    sub = p.add_subparsers(dest="cmd", metavar="<命令>", parser_class=Parser)
+    sub = p.add_subparsers(dest="cmd", metavar="<command>", parser_class=Parser)
 
     # ---- ask ----
-    a = _sub(sub, "ask", "把内容发给 Agent 并取回结果",
-             "默认输出回答正文；--json 输出结构化结果；--no-wait 挂后台。", common)
-    a.add_argument("prompt", nargs="*", help="要发送的内容；`-` 或省略表示从 stdin 读")
-    a.add_argument("--file", help="从文件读取 prompt")
+    a = _sub(sub, "ask", "send content to the Agent and retrieve the result",
+             "By default outputs the answer body; --json outputs structured results; --no-wait runs in the background.", common)
+    a.add_argument("prompt", nargs="*", help="content to send; `-` or omitting it reads from stdin")
+    a.add_argument("--file", help="read the prompt from a file")
     a.add_argument("--chat",
-                   help="在已有会话里继续提问（chat_id / URL / last / arena chat list 的序号）")
+                   help="continue asking in an existing conversation (chat_id / URL / last / index from arena chat list)")
     a.add_argument("--stream", action="store_true", default=argparse.SUPPRESS,
-                   help="把生成过程中的增量实时打到 stderr（stdout 仍只有最终回答）")
+                   help="print incremental output during generation to stderr in real time (stdout still contains only the final answer)")
 
     # ---- login / check / status ----
-    lg = _sub(sub, "login", "登录并保存 cookies",
-              "首次进入会先点同意条款，再点发送触发登录弹窗。", common)
-    lg.add_argument("--email", help="接收登录链接/验证码的邮箱")
-    lg.add_argument("--code", help="一次性验证码（页面要求时）")
-    lg.add_argument("--wait", type=float, default=240, help="等待人工完成登录的秒数")
-    lg.add_argument("--probe-text", default="hi", help="用于触发登录弹窗的占位消息")
+    lg = _sub(sub, "login", "log in and save cookies",
+              "On first visit, clicks the terms agreement first, then clicks send to trigger the login dialog.", common)
+    lg.add_argument("--email", help="email address that receives the login link / verification code")
+    lg.add_argument("--code", help="one-time verification code (when the page requests it)")
+    lg.add_argument("--wait", type=float, default=240, help="seconds to wait for manual login completion")
+    lg.add_argument("--probe-text", default="hi", help="placeholder message used to trigger the login dialog")
 
-    ck = _sub(sub, "check", "检查登录态是否可用", "", common)
-    ck.add_argument("--probe", action="store_true", help="真发一条探测消息来确认（会留聊天记录）")
+    ck = _sub(sub, "check", "check whether the login session is usable", "", common)
+    ck.add_argument("--probe", action="store_true", help="send a real probe message to confirm (this leaves a chat record)")
     ck.add_argument("--probe-text", default="hi")
 
-    _sub(sub, "status", "登录态 + 环境 + 最近任务的综合状态", "", common)
+    _sub(sub, "status", "combined status: login session + environment + recent jobs", "", common)
 
     # ---- cookies ----
-    ck2 = _sub(sub, "cookies", "导入/导出/查看 cookies", "", common)
-    csub = ck2.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    ci = _sub(csub, "cookies.import", "导入 cookies 文件（Netscape .txt / JSON）",
-              "会覆盖当前 profile 的登录态，属高危操作，需要 --yes。", common)
+    ck2 = _sub(sub, "cookies", "import / export / view cookies", "", common)
+    csub = ck2.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    ci = _sub(csub, "cookies.import", "import a cookies file (Netscape .txt / JSON)",
+              "Overwrites the login session of the current profile; this is a high-risk operation and requires --yes.", common)
     ci.add_argument("path")
-    ci.add_argument("--force", action="store_true", help="（兼容旧脚本）等同 --yes")
-    ce = _sub(csub, "cookies.export", "导出当前会话 cookies", "", common)
-    ce.add_argument("--out", help="输出路径（默认 ~/.arena-cli/cookies.json）")
-    _sub(csub, "cookies.show", "查看 cookie 清单（只显示名字，不显示值）", "", common)
+    ci.add_argument("--force", action="store_true", help="(for legacy scripts) equivalent to --yes")
+    ce = _sub(csub, "cookies.export", "export the current session cookies", "", common)
+    ce.add_argument("--out", help="output path (default: ~/.arena-cli/cookies.json)")
+    _sub(csub, "cookies.show", "list cookies (names only, no values)", "", common)
 
     # ---- chat ----
-    ch = _sub(sub, "chat", "会话历史", "", common)
-    chsub = ch.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    cl = _sub(chsub, "chat.list", "列出最近会话", "", common)
+    ch = _sub(sub, "chat", "conversation history", "", common)
+    chsub = ch.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    cl = _sub(chsub, "chat.list", "list recent conversations", "", common)
     cl.add_argument("--limit", type=int, default=20)
-    clast = _sub(chsub, "chat.last", "打印最近一条会话的链接", "", common)
+    clast = _sub(chsub, "chat.last", "print the link to the most recent conversation", "", common)
     clast.add_argument("--limit", type=int, default=5)
-    co = _sub(chsub, "chat.open", "把会话链接打印出来（可在浏览器打开）", "", common)
-    co.add_argument("ref", help="chat_id / 序号 / last / 完整 URL")
-    co.add_argument("--browser", action="store_true", help="同时用系统浏览器打开")
+    co = _sub(chsub, "chat.open", "print the conversation link (can be opened in a browser)", "", common)
+    co.add_argument("ref", help="chat_id / index / last / full URL")
+    co.add_argument("--browser", action="store_true", help="also open it in the system browser")
 
     # ---- workspace ----
-    wsf = _sub(sub, "workspace", "会话工作区：列文件 / 看内容 / 下载",
-               "查看 Agent 在那个会话里产出的文件（含上传件）。默认操作最近一个会话，用 --chat 指定。",
+    wsf = _sub(sub, "workspace", "conversation workspace: list files / view contents / download",
+               "View the files the Agent produced in that conversation (including uploads). Operates on the most recent conversation by default; use --chat to specify one.",
                common)
-    wssub = wsf.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    wl = _sub(wssub, "workspace.list", "列出工作区文件（自动展开文件夹）", "", common)
-    wl.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
-    wl.add_argument("--no-expand", action="store_true", help="只列顶层，不展开文件夹")
-    wsl = _sub(wssub, "workspace.show", "打印某个文件的内容（文本）",
-               "stdout 只有文件内容，适合直接转发。", common)
-    wsl.add_argument("path", help="文件路径（workspace list 里那一列，可只写文件名）")
-    wsl.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
-    wd = _sub(wssub, "workspace.download", "下载工作区文件到本地",
-              "覆盖同名本地文件属高危操作，需要 --yes。", common)
-    wd.add_argument("path", nargs="?", default="", help="文件路径（--all 时可省略）")
-    wd.add_argument("--chat", help="哪个会话（chat_id / last / 序号）")
-    wd.add_argument("--out", help="保存到哪里（文件路径或已存在的目录；默认当前目录）")
-    wd.add_argument("--all", action="store_true", help="把整个工作区打包成 zip 下载")
-    wd.add_argument("--force", action="store_true", help="（兼容旧脚本）等同 --yes")
+    wssub = wsf.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    wl = _sub(wssub, "workspace.list", "list workspace files (folders are expanded automatically)", "", common)
+    wl.add_argument("--chat", help="which conversation (chat_id / last / index)")
+    wl.add_argument("--no-expand", action="store_true", help="list the top level only; do not expand folders")
+    wsl = _sub(wssub, "workspace.show", "print the contents of a file (text)",
+               "stdout contains only the file contents, suitable for direct forwarding.", common)
+    wsl.add_argument("path", help="file path (as shown in workspace list; the file name alone is acceptable)")
+    wsl.add_argument("--chat", help="which conversation (chat_id / last / index)")
+    wd = _sub(wssub, "workspace.download", "download workspace files locally",
+              "Overwriting a local file with the same name is a high-risk operation and requires --yes.", common)
+    wd.add_argument("path", nargs="?", default="", help="file path (may be omitted with --all)")
+    wd.add_argument("--chat", help="which conversation (chat_id / last / index)")
+    wd.add_argument("--out", help="where to save (a file path or an existing directory; default: current directory)")
+    wd.add_argument("--all", action="store_true", help="package the entire workspace as a zip and download it")
+    wd.add_argument("--force", action="store_true", help="(for legacy scripts) equivalent to --yes")
 
     # ---- config ----
-    cf = _sub(sub, "config", "读写配置", "", common)
-    cfsub = cf.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    _sub(cfsub, "config.list", "列出全部配置", "", common)
-    _sub(cfsub, "config.show", "同上（别名）", "", common)
-    cg = _sub(cfsub, "config.get", "读一个配置项", "", common)
+    cf = _sub(sub, "config", "read / write configuration", "", common)
+    cfsub = cf.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    _sub(cfsub, "config.list", "list all configuration", "", common)
+    _sub(cfsub, "config.show", "same as above (alias)", "", common)
+    cg = _sub(cfsub, "config.get", "read one configuration item", "", common)
     cg.add_argument("key")
-    cs = _sub(cfsub, "config.set", "写一个配置项", "", common)
-    cs.add_argument("key", help="可用：" + ", ".join(sorted(SETTABLE)))
-    cs.add_argument("value", help="值（数字/true/false/JSON 会自动识别）")
-    cu = _sub(cfsub, "config.unset", "删除配置项（回到默认值）", "", common)
+    cs = _sub(cfsub, "config.set", "write one configuration item", "", common)
+    cs.add_argument("key", help="available: " + ", ".join(sorted(SETTABLE)))
+    cs.add_argument("value", help="value (numbers / true / false / JSON are detected automatically)")
+    cu = _sub(cfsub, "config.unset", "remove a configuration item (revert to default)", "", common)
     cu.add_argument("key")
-    _sub(cfsub, "config.path", "打印配置文件路径", "", common)
+    _sub(cfsub, "config.path", "print the configuration file path", "", common)
 
     # ---- profile ----
-    pf = _sub(sub, "profile", "多套登录态切换", "", common)
-    pfsub = pf.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    _sub(pfsub, "profile.list", "列出所有 profile", "", common)
-    _sub(pfsub, "profile.show", "当前 profile 详情", "", common)
-    pc = _sub(pfsub, "profile.create", "新建 profile", "", common)
+    pf = _sub(sub, "profile", "switch between multiple login sessions", "", common)
+    pfsub = pf.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    _sub(pfsub, "profile.list", "list all profiles", "", common)
+    _sub(pfsub, "profile.show", "details of the current profile", "", common)
+    pc = _sub(pfsub, "profile.create", "create a new profile", "", common)
     pc.add_argument("name")
-    pc.add_argument("--from", dest="from_cookies", help="顺便从这个 cookies 文件导入会话")
-    pu = _sub(pfsub, "profile.use", "切换默认 profile", "", common)
+    pc.add_argument("--from", dest="from_cookies", help="also import the session from this cookies file")
+    pu = _sub(pfsub, "profile.use", "switch the default profile", "", common)
     pu.add_argument("name")
-    pd = _sub(pfsub, "profile.delete", "删除 profile（高危，需要 --yes）", "", common)
+    pd = _sub(pfsub, "profile.delete", "delete a profile (high risk; requires --yes)", "", common)
     pd.add_argument("name")
 
     # ---- jobs ----
-    jb = _sub(sub, "jobs", "后台任务（ask --no-wait 产生的任务）", "", common)
-    jsub = jb.add_subparsers(dest="sub", metavar="<子命令>", parser_class=Parser)
-    jl = _sub(jsub, "jobs.list", "列出后台任务", "", common)
+    jb = _sub(sub, "jobs", "background jobs (created by ask --no-wait)", "", common)
+    jsub = jb.add_subparsers(dest="sub", metavar="<subcommand>", parser_class=Parser)
+    jl = _sub(jsub, "jobs.list", "list background jobs", "", common)
     jl.add_argument("--limit", type=int, default=20)
-    for verb, text in (("status", "任务状态"), ("result", "取回任务结果"),
-                       ("logs", "看任务日志"), ("cancel", "取消任务")):
+    for verb, text in (("status", "job status"), ("result", "retrieve the job result"),
+                       ("logs", "view job logs"), ("cancel", "cancel the job")):
         jp = _sub(jsub, f"jobs.{verb}", text, "", common)
-        jp.add_argument("ref", nargs="?", default="last", help="job id / 前缀 / last（默认 last）")
+        jp.add_argument("ref", nargs="?", default="last", help="job id / prefix / last (default: last)")
         if verb == "logs":
             jp.add_argument("--tail", type=int, default=40)
 
     # ---- schema / doctor / version ----
-    sc = _sub(sub, "schema", "查看某命令的参数/风险/默认值（agent 自省）", "", common)
-    sc.add_argument("path", nargs="*", help="命令路径，如 ask / cookies import / jobs result")
-    _sub(sub, "doctor", "环境体检（依赖/浏览器/网络/会话/技能安装）", "", common)
-    _sub(sub, "version", "版本信息", "", common)
-    _sub(sub, "help", "显示帮助", "", common)
+    sc = _sub(sub, "schema", "view a command's parameters / risk / defaults (agent introspection)", "", common)
+    sc.add_argument("path", nargs="*", help="command path, e.g. ask / cookies import / jobs result")
+    _sub(sub, "doctor", "environment check (dependencies / browser / network / session / skill installation)", "", common)
+    _sub(sub, "version", "version information", "", common)
+    _sub(sub, "help", "show help", "", common)
     return p
 
 
-# --------------------------------------------------------------------------- 分发
+# --------------------------------------------------------------------------- dispatch
 def _dispatch(args, ctx) -> int:
     from .commands import (admin, ask as ask_cmd, auth, chat, config_cmd, cookies, jobs_cmd,
                            profile, schema_cmd, workspace as workspace_cmd)
@@ -362,20 +362,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         return err.exit_code
 
     try:
-        # 全局 --cookies：先导入（高危，需要 --yes）
+        # Global --cookies: import first (high risk; requires --yes)
         cookies_file = getattr(args, "cookies", None)
         if cookies_file:
             target = Path(cookies_file).expanduser()
             if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
-                raise confirmation(f"用 {target.name} 覆盖 profile「{ctx.paths.profile}」的登录态",
-                                   "确认后加 --yes；或 --dry-run 先看会导入什么")
+                raise confirmation(f"overwrite the login session of profile \"{ctx.paths.profile}\" with {target.name}",
+                                   "add --yes to confirm; or use --dry-run first to see what would be imported")
             imp = cmd_import(target, ctx.paths.state_file, ctx.engine_cfg)
-            ui.debug(f"导入 {imp['count']} 条 cookies（登录凭证: "
-                     f"{', '.join(imp['auth_cookie_names']) or '未识别'}）")
+            ui.debug(f"imported {imp['count']} cookies (login credentials: "
+                     f"{', '.join(imp['auth_cookie_names']) or 'not recognized'})")
             if not imp["has_auth_cookie"]:
-                ui.warn("这份 cookies 里没识别出登录凭证，可能仍需 arena login")
+                ui.warn("No login credential was recognized in these cookies; you may still need arena login")
 
-        # 风险闸门
+        # Risk gate
         risk = _risk_of(args)
         needs_confirm = (risk == "high-risk-write"
                          and not getattr(args, "yes", False)
@@ -393,7 +393,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     except FileNotFoundError as exc:
         return fail(ArenaError("validation", "not_found", str(exc), "arena jobs list"))
     except KeyboardInterrupt:
-        ui.err("已中断")
+        ui.err("Interrupted")
         return 130
     except BrokenPipeError:
         return 0
@@ -401,12 +401,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         from playwright.sync_api import Error as PWError
         if isinstance(exc, PWError):
             return fail(ArenaError("runtime", "browser_error", str(exc).splitlines()[0],
-                                   "用 --headed 观察页面，或 arena doctor"))
+                                   "use --headed to observe the page, or run arena doctor"))
         if ui.verbose:
             import traceback
             traceback.print_exc()
         return fail(ArenaError("runtime", "internal", f"{type(exc).__name__}: {exc}",
-                               "加 -v 看完整堆栈；或 arena doctor"))
+                               "add -v for the full stack trace; or run arena doctor"))
 
 
 if __name__ == "__main__":

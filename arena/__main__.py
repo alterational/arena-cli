@@ -1,4 +1,4 @@
-"""允许 `python3 -m arena ...`。"""
+"""Allows `python3 -m arena ...`."""
 import sys
 
 from .cli import main

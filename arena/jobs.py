@@ -1,12 +1,12 @@
-"""后台任务（`arena ask --no-wait`）：把长任务挂到后台，用 job id 回来取结果。
+"""Background jobs (`arena ask --no-wait`): run long tasks in the background and retrieve the results later using the job id.
 
-对齐 lark-cli 的两段式（--no-wait / 后续取回）模式：agent 不必阻塞几分钟等浏览器跑完。
+Follows lark-cli's two-step pattern (--no-wait / retrieve later): an agent does not have to block for minutes while the browser finishes.
 
-目录结构：
+Directory layout:
     ~/.arena-cli/jobs/<job_id>/
-        job.json      # 状态、prompt、profile、pid
-        result.json   # 完成后的结果（和 arena ask --json 的 data 同构）
-        run.log       # 引擎日志
+        job.json      # status, prompt, profile, pid
+        result.json   # result after completion (same structure as the data from arena ask --json)
+        run.log       # engine log
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-STALE_SECONDS = 2.0   # pid 不在了也要给个缓冲，避免误判"刚 spawn 就查"的情况
+STALE_SECONDS = 2.0   # Allow a buffer even after the pid is gone, to avoid misjudging a job that was just spawned and checked immediately
 
 
-# --------------------------------------------------------------------------- 存储
+# --------------------------------------------------------------------------- Storage
 def jobs_root(home: Path) -> Path:
     root = home / "jobs"
     root.mkdir(parents=True, exist_ok=True)
@@ -48,16 +48,16 @@ def _read_json(path: Path) -> Optional[dict[str, Any]]:
         return None
 
 
-# --------------------------------------------------------------------------- 查询
+# --------------------------------------------------------------------------- Query
 def job_dirs(home: Path) -> list[Path]:
     return sorted((p for p in jobs_root(home).iterdir() if p.is_dir()), reverse=True)
 
 
 def resolve(home: Path, ref: str) -> Path:
-    """支持完整 id、前缀、last。"""
+    """Supports the full id, a prefix, or last."""
     dirs = job_dirs(home)
     if not dirs:
-        raise FileNotFoundError("还没有任何后台任务")
+        raise FileNotFoundError("No background jobs yet")
     if ref in ("last", "latest", "-1"):
         return dirs[0]
     exact = home / "jobs" / ref
@@ -67,8 +67,8 @@ def resolve(home: Path, ref: str) -> Path:
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise FileNotFoundError(f"找不到任务：{ref}")
-    raise ValueError(f"前缀 {ref} 匹配到多个任务，请写更完整一点")
+        raise FileNotFoundError(f"Job not found: {ref}")
+    raise ValueError(f"Prefix {ref} matches multiple jobs; please provide more characters")
 
 
 def pid_alive(pid: Optional[int]) -> bool:
@@ -128,7 +128,7 @@ def cancel(job_dir: Path) -> bool:
     killed = False
     if pid_alive(pid):
         try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)   # 连同浏览器进程一起收掉
+            os.killpg(os.getpgid(pid), signal.SIGTERM)   # Also terminate the browser process along with it
             killed = True
         except OSError:
             try:
@@ -142,7 +142,7 @@ def cancel(job_dir: Path) -> bool:
     return killed
 
 
-# --------------------------------------------------------------------------- 创建
+# --------------------------------------------------------------------------- Create
 def create(home: Path, prompt: str, *, profile: str, state_file: Path, profile_dir: Path,
            options: dict[str, Any]) -> dict[str, Any]:
     job_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.urandom(2).hex()}"
@@ -169,7 +169,7 @@ def create(home: Path, prompt: str, *, profile: str, state_file: Path, profile_d
     env["PYTHONPATH"] = repo_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     env.setdefault("PYTHONIOENCODING", "utf-8")
 
-    log = open(job_dir / "run.log", "ab", buffering=0)   # noqa: SIM115 — 交给子进程持有
+    log = open(job_dir / "run.log", "ab", buffering=0)   # noqa: SIM115 — handed over to the child process
     proc = subprocess.Popen(
         [sys.executable, "-m", "arena.jobs", "--run", str(job_dir)],
         stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -183,11 +183,11 @@ def create(home: Path, prompt: str, *, profile: str, state_file: Path, profile_d
 
 # --------------------------------------------------------------------------- worker
 def run_worker(job_dir: Path) -> int:
-    """后台进程入口：读 job.json，跑一次 ask，写 result.json。"""
+    """Background process entry point: read job.json, run one ask, write result.json."""
     job = _read_json(job_dir / "job.json") or {}
     if not job:
         return 1
-    from .config import profile_paths  # noqa: F401  (保持依赖清晰)
+    from .config import profile_paths  # noqa: F401  (keeps dependencies explicit)
     from .engine import Session, SkillError, load_config
 
     opts = job.get("options") or {}
@@ -200,16 +200,16 @@ def run_worker(job_dir: Path) -> int:
     try:
         progress = {"logged": 0}
 
-        def on_update(text: str) -> None:      # 进度写进 run.log，`arena jobs logs` 能看到
+        def on_update(text: str) -> None:      # Progress is written to run.log, visible via `arena jobs logs`
             if len(text) - progress["logged"] >= 200:
                 progress["logged"] = len(text)
-                print(f"[进度] 已生成 {len(text)} 字", flush=True)
+                print(f"[progress] {len(text)} characters generated so far", flush=True)
 
         with Session(cfg, Path(job["profile_dir"]), Path(job["state_file"]),
                      headed=bool(opts.get("headed"))) as session:
             chat = opts.get("chat")
             if chat:
-                from .commands.ask import resolve_chat   # 延迟导入，避免循环依赖
+                from .commands.ask import resolve_chat   # Deferred import to avoid a circular dependency
                 chat = resolve_chat(session, chat)
             result = session.ask(job["prompt"], timeout=opts.get("timeout"),
                                  stable=opts.get("stable"), chat=chat,
@@ -234,4 +234,4 @@ def run_worker(job_dir: Path) -> int:
 if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "--run":
         sys.exit(run_worker(Path(sys.argv[2])))
-    sys.exit("用法：python -m arena.jobs --run <job_dir>")
+    sys.exit("Usage: python -m arena.jobs --run <job_dir>")
