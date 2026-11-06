@@ -26,6 +26,7 @@ USAGE_ERROR = 64          # BSD sysexits: usage error, distinguished from busine
 # Risk levels (aligned with lark-cli's read / write / high-risk-write)
 RISK: dict[str, str] = {
     "ask": "write",
+    "tui": "write",
     "login": "write",
     "check": "read",
     "status": "read",
@@ -168,6 +169,10 @@ def build_parser() -> Parser:
     a.add_argument("--stream", action="store_true", default=argparse.SUPPRESS,
                    help="print incremental output during generation to stderr in real time (stdout still contains only the final answer)")
 
+    tu = _sub(sub, "tui", "open the interactive terminal interface with temporary chat tabs",
+              "Requires an interactive terminal. Chat tabs last only for this run; conversations remain on Arena.", common)
+    tu.add_argument("--chat", help="open an existing conversation (chat ID / URL / last / index)")
+
     # ---- login / check / status ----
     lg = _sub(sub, "login", "log in and save cookies",
               "On first visit, clicks the terms agreement first, then clicks send to trigger the login dialog.", common)
@@ -275,11 +280,12 @@ def build_parser() -> Parser:
 # --------------------------------------------------------------------------- dispatch
 def _dispatch(args, ctx) -> int:
     from .commands import (admin, ask as ask_cmd, auth, chat, config_cmd, cookies, jobs_cmd,
-                           profile, schema_cmd, workspace as workspace_cmd)
+                           profile, schema_cmd, tui, workspace as workspace_cmd)
 
     key = (args.cmd, getattr(args, "sub", None))
     table: dict[tuple[str, Optional[str]], Callable[[Any, Any], int]] = {
         ("ask", None): ask_cmd.run,
+        ("tui", None): tui.run,
         ("login", None): auth.run_login,
         ("check", None): auth.run_check,
         ("status", None): admin.run_status,
@@ -345,7 +351,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         quiet=bool(getattr(args, "quiet", False)),
         verbose=bool(getattr(args, "verbose", False)),
     )
-    ctx = build_context(args, ui)
+    ctx = None
 
     from .errors import ArenaError, confirmation, from_skill_error
     from .engine import SkillError, cmd_import
@@ -353,7 +359,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     def fail(err: ArenaError) -> int:
         if ui.json_mode or getattr(args, "jq", None):
-            print(json.dumps({"ok": False, "identity": ctx.paths.profile,
+            print(json.dumps({"ok": False, "identity": ctx.paths.profile if ctx else getattr(args, "profile", "default"),
                               "error": err.to_dict()}, ensure_ascii=False, indent=2))
         else:
             ui.err(f"{err.type}.{err.subtype}: {err.message}")
@@ -362,6 +368,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return err.exit_code
 
     try:
+        ctx = build_context(args, ui)
+        if args.cmd == "tui":
+            from .commands.tui import validate
+            validate(ctx, args)
         # Global --cookies: import first (high risk; requires --yes)
         cookies_file = getattr(args, "cookies", None)
         if cookies_file:
@@ -369,11 +379,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
                 raise confirmation(f"overwrite the login session of profile \"{ctx.paths.profile}\" with {target.name}",
                                    "add --yes to confirm; or use --dry-run first to see what would be imported")
-            imp = cmd_import(target, ctx.paths.state_file, ctx.engine_cfg)
-            ui.debug(f"imported {imp['count']} cookies (login credentials: "
-                     f"{', '.join(imp['auth_cookie_names']) or 'not recognized'})")
-            if not imp["has_auth_cookie"]:
-                ui.warn("No login credential was recognized in these cookies; you may still need arena login")
+            if getattr(args, "dry_run", False):
+                from .engine import parse_cookie_file
+                parse_cookie_file(target)
+            else:
+                imp = cmd_import(target, ctx.paths.state_file, ctx.engine_cfg)
+                ui.debug(f"imported {imp['count']} cookies (login credentials: "
+                         f"{', '.join(imp['auth_cookie_names']) or 'not recognized'})")
+                if not imp["has_auth_cookie"]:
+                    ui.warn("No login credential was recognized in these cookies; you may still need arena login")
 
         # Risk gate
         risk = _risk_of(args)
@@ -398,7 +412,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     except BrokenPipeError:
         return 0
     except Exception as exc:  # noqa: BLE001
-        from playwright.sync_api import Error as PWError
+        from .engine import PWError
         if isinstance(exc, PWError):
             return fail(ArenaError("runtime", "browser_error", str(exc).splitlines()[0],
                                    "use --headed to observe the page, or run arena doctor"))

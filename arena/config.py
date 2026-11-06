@@ -29,12 +29,14 @@ DEFAULTS: dict[str, Any] = {
     "color": True,
     "max_chars": 0,          # Truncate long answers when printing (0 = no truncation)
     "selectors": {},         # Selector overrides passed through to the engine
-    "proxy": "",             # Route all requests through this proxy (http/https/socks5; user:pass is also supported)
+    "proxy": "",             # Route all requests through this proxy
+    "block_analytics_scripts": True,
+    "reduce_visual_effects": True,
 }
 
 # Keys that can be set with arena config set (prevents typos in key names)
 SETTABLE = {"base_url", "agent_path", "timeout", "stable", "profile", "format",
-            "color", "max_chars", "selectors", "proxy"}
+            "color", "max_chars", "selectors", "proxy", "block_analytics_scripts", "reduce_visual_effects"}
 
 
 LEGACY_HOME = Path.home() / ".arena-agent"
@@ -135,8 +137,8 @@ def read_config(path: Path) -> dict[str, Any]:
 
 
 def write_config(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    from .storage import write_private_text
+    write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 @dataclass
@@ -157,7 +159,13 @@ def profile_paths(name: str, home: Optional[Path] = None) -> tuple[Path, Path]:
     home = home or arena_home()
     if name in ("", "default"):
         return home / "state.json", home / "prof"
-    base = home / "profiles" / name
+    from .errors import ArenaError
+    if name in (".", "..") or any(c in name for c in ("/", "\\", "\0")):
+        raise ArenaError("validation", "invalid_argument", "Invalid profile name")
+    root = home / "profiles"
+    base = root / name
+    if root.is_symlink() or base.is_symlink() or base.resolve().parent != root.resolve():
+        raise ArenaError("validation", "invalid_argument", "Profile path must stay inside the profiles directory")
     return base / "state.json", base / "prof"
 
 
@@ -214,6 +222,9 @@ def build_context(args: Any, ui: Any) -> Context:
     home = arena_home()
     cfg_file = config_path(getattr(args, "config", None))
     file_cfg = read_config(cfg_file)
+    if file_cfg.get("_invalid"):
+        from .errors import ArenaError
+        raise ArenaError("config", "invalid_config", f"Invalid JSON in {cfg_file}", "Fix the configuration file and try again")
 
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in file_cfg.items() if not k.startswith("_")})
@@ -242,6 +253,12 @@ def build_context(args: Any, ui: Any) -> Context:
     if getattr(args, "no_color", False):
         cfg["color"] = False
 
+    from .url_safety import validate_base_url
+    try:
+        validate_base_url(cfg["base_url"])
+    except (ValueError, TypeError):
+        from .errors import ArenaError
+        raise ArenaError("validation", "invalid_argument", "Invalid base URL", "Use an HTTP(S) site origin without credentials, path, query, or fragment") from None
     profile = str(cfg.get("profile") or "default")
     state_file, profile_dir = profile_paths(profile, home)
     if getattr(args, "state_file", None):
@@ -261,6 +278,8 @@ def build_context(args: Any, ui: Any) -> Context:
         "wait_timeout": cfg["timeout"],
         "stable_seconds": cfg["stable"],
         "agent_path": cfg["agent_path"],
+        "block_analytics_scripts": cfg["block_analytics_scripts"],
+        "reduce_visual_effects": cfg["reduce_visual_effects"],
     }
     selectors = cfg.get("selectors") or {}
     for key in ("editor_selectors", "send_selectors", "assistant_selectors", "user_selectors",

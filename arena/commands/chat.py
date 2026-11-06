@@ -9,13 +9,15 @@ from ..session import open_session
 
 
 def _resolve_url(ctx, ref: str) -> str:
+    from ..url_safety import same_origin_url
     base = str(ctx.get("base_url")).rstrip("/")
     ref = ref.strip()
-    if ref.startswith("http"):
-        return ref
-    if ref.startswith("/agent/"):
-        return base + ref
-    return f"{base}{ctx.get('agent_path')}/{ref}"
+    target = ref if ref.startswith("http") or ref.startswith("/agent/") else f"{ctx.get('agent_path')}/{ref}"
+    try:
+        return same_origin_url(base, target)
+    except ValueError:
+        raise ArenaError("validation", "invalid_argument", "Conversation URL must use the configured site's origin") from None
+
 
 
 def _chats(ctx, limit: int) -> list[dict]:

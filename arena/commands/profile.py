@@ -13,17 +13,17 @@ def _profiles() -> list[str]:
     names = {"default"}
     pdir = home / "profiles"
     if pdir.is_dir():
-        names |= {p.name for p in pdir.iterdir() if p.is_dir()}
+        names |= {p.name for p in pdir.iterdir() if p.is_dir() and not p.is_symlink()}
     return sorted(names)
 
 
-def _status(state_file: Path) -> str:
+def _status(state_file: Path, cfg: dict | None = None) -> str:
     if not state_file.exists():
         return "empty (no cookies imported)"
     try:
-        from ..engine import parse_cookie_file, summarize_cookies
+        from ..engine import DEFAULT_CONFIG, parse_cookie_file, summarize_cookies
         cookies, _ = parse_cookie_file(state_file)
-        health = summarize_cookies(cookies, {})
+        health = summarize_cookies(cookies, cfg if cfg is not None else DEFAULT_CONFIG)
         if health["has_auth_cookie"]:
             return f"{health['count']} cookies, including {health['auth_cookie_names'][0]}"
         return f"{health['count']} cookies (no login credential)"
@@ -36,7 +36,7 @@ def run_list(ctx, args) -> int:
     rows = []
     for name in _profiles():
         state_file, _ = profile_paths(name, home)
-        rows.append([name, "*" if name == ctx.paths.profile else "", _status(state_file),
+        rows.append([name, "*" if name == ctx.paths.profile else "", _status(state_file, ctx.engine_cfg),
                      str(state_file)])
     data = {"active": ctx.paths.profile,
             "profiles": [{"name": r[0], "active": r[1] == "*", "session": r[2],
@@ -52,7 +52,7 @@ def run_list(ctx, args) -> int:
 def run_show(ctx, args) -> int:
     data = {"profile": ctx.paths.profile, "state_file": str(ctx.paths.state_file),
             "profile_dir": str(ctx.paths.profile_dir),
-            "session": _status(ctx.paths.state_file)}
+            "session": _status(ctx.paths.state_file, ctx.engine_cfg)}
     return ctx.emit(data, human=lambda: ctx.ui.kv(list(data.items())))
 
 
@@ -65,7 +65,7 @@ def run_create(ctx, args) -> int:
     if state_file.exists() or profile_dir.exists():
         ctx.ui.fail("BAD_INPUT", f"profile \"{name}\" already exists", "arena profile list")
         return 1
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     if args.from_cookies:                      # Start directly from a cookies file
         from ..engine import SkillError, cmd_import
         try:
@@ -93,7 +93,7 @@ def run_use(ctx, args) -> int:
     write_config(cfg_file, data)
     state_file, _ = profile_paths(name)
     ctx.ui.ok(f"Switched to profile \"{name}\" (written to {cfg_file})")
-    ctx.ui.info(f"Session: {_status(state_file)} → {state_file}")
+    ctx.ui.info(f"Session: {_status(state_file, ctx.engine_cfg)} → {state_file}")
     return 0
 
 

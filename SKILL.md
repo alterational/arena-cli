@@ -73,7 +73,7 @@ Do not use this for ordinary questions that can be answered directly, or when th
 | No `arena` command and no cookies | `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py login --email <email> --headed --wait 300` |
 
 If `arena` is not in PATH, replace `arena X` in the table with `python3 ${HERMES_SKILL_DIR}/scripts/arena_ask.py X` (for `ask` only).
-For other commands, use `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py X`, or run `${HERMES_SKILL_DIR}/install.sh` first.
+For other commands, use `python3 ${HERMES_SKILL_DIR}/scripts/arena_agent.py X`, or install the CLI from the original repository with `pip install -e .`.
 
 If `skills.config.arena.state_file` or `arena.timeout` is configured, pass its value as `--state-file` or `--timeout`.
 

@@ -14,7 +14,7 @@ HINTS: dict[str, str] = {
     "LOGIN_REQUIRED": "Session has expired: run `arena cookies import <cookies file>` to update the login session, or `arena login --email your@email.com --headed`",
     "LOGIN_FAILED": "Email was rejected or the verification code is wrong: use a real email domain, or use a cookies file directly",
     "LOGIN_TIMEOUT": "Login did not complete in time: increase --wait, or use a cookies file directly",
-    "SEND_FAILED": "Message was not sent: retry once later; if it keeps failing, use `arena ask --headed` to observe the page",
+    "SEND_FAILED": "Could not confirm sending: check the conversation before retrying; use `arena ask --headed` to observe the page",
     "TIMEOUT": "The Agent is still running: use `--timeout 1800` to wait longer, or get the link with `arena chat last` and check it yourself",
     "UI_CHANGED": "Page structure changed: update the selectors in `~/.arena-cli/config.json`; see references/troubleshooting.md",
     "BLOCKED": "Hit Cloudflare human verification: import fresh cookies (including cf_clearance), or pass the check manually once with `--headed`",

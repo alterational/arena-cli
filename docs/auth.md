@@ -71,3 +71,6 @@ arena profile delete work --yes      # high-risk-write; requires --yes
 
 The login cookie is **httpOnly**, so `document.cookie` cannot read it. It must be saved to disk through Playwright's
 `storage_state`. This is also why the JSON produced by `cookies export` works, while copying and pasting from the console does not.
+
+The session snapshot and browser profile contain credentials. Keep them private and never share them in chat.
+When restoring a snapshot, the CLI injects cookies applicable to the configured host and local storage for its exact origin.

@@ -47,6 +47,8 @@ else
   mkdir -p "$DEST"
   cp "$SRC/SKILL.md" "$DEST/"
   cp -R "$SRC/scripts" "$DEST/"
+  cp -R "$SRC/arena" "$DEST/"
+  find "$DEST/arena" -type d -name __pycache__ -prune -exec rm -rf {} +
   [ -d "$SRC/references" ] && cp -R "$SRC/references" "$DEST/"
   [ -d "$SRC/snippets" ]   && cp -R "$SRC/snippets"   "$DEST/"
   [ -f "$SRC/config.example.json" ] && cp "$SRC/config.example.json" "$DEST/"

@@ -95,6 +95,6 @@ def run_cancel(ctx, args) -> int:
                         dry_run=True,
                         human=lambda: ctx.ui.info(f"[dry-run] would cancel job {job_dir.name}"))
     killed = jobs.cancel(job_dir)
-    data = {"job_id": job_dir.name, "cancelled": True, "process_killed": killed}
-    return ctx.emit(data, human=lambda: ctx.ui.ok(
-        f"Cancelled {job_dir.name}" + ("" if killed else " (the process had already exited on its own)")))
+    data = {"job_id": job_dir.name, "cancelled": killed, "process_killed": killed}
+    return ctx.emit(data, human=lambda: ctx.ui.ok(f"Cancelled {job_dir.name}") if killed else
+                    ctx.ui.warn(f"Job {job_dir.name} was not cancelled; it has finished or its worker could not be verified"))
