@@ -74,6 +74,37 @@ Precedence: `--proxy` > configuration file > `ARENA_PROXY` > `HTTPS_PROXY`/`ALL_
 The proxy applies to both the **browser** (passed through Playwright, including `--proxy-bypass-list=<-loopback>`, because otherwise Chrome adds localhost to its bypass list by default)
 and the network check in `arena doctor`. If the proxy cannot connect, the tool explicitly reports `BROWSER_ERROR` instead of appearing to succeed.
 
+## Interactive chat tabs
+
+Run `arena tui` in a terminal after logging in, or `arena tui --chat last` to continue an existing conversation.
+This is browser UI automation, not an official Arena API. It uses the selected profile and normal browser settings.
+
+- **Ctrl-S** sends; **Enter** adds a line, so pasted multiline text is not accidentally submitted.
+- **F2** creates a tab, **Tab** or **F3** switches forward, **Shift-Tab** or **F4** switches back,
+  **F6** closes a tab, and **Ctrl-Q**, **Ctrl-C**, or **F10** exits. Page Up and Page Down scroll.
+- Type `/new`, `/open <chat ID|URL|last|index>`, `/next`, `/prev`, `/close`, `/help`, or `/quit`, then press Ctrl-S.
+  To send a prompt beginning with `/`, start it with `//`.
+- Tabs, drafts, and displayed messages exist only for the current run. Closing a tab does not delete its Arena
+  conversation. Earlier messages of reopened chats are not loaded; `last` and indexes are resolved on first send.
+- One request runs at a time, but tabs can be switched while it runs. Quitting during a request requires confirmation;
+  the message may already have been sent. Failed or ambiguous requests are never retried automatically.
+
+The interface requires a Unix-like terminal with Python `curses`. It does not support `--json`, `--jq`, `--dry-run`,
+`--no-wait`, `--quiet`, `--verbose`, or `--max-chars`; use `arena ask` for those modes. Responses are not truncated.
+The browser profile and session files contain credentials; protect them as described in [Authentication](auth.md).
+
+## Browser performance and safety
+
+By default, Arena-scoped visual effects are reduced and Google Analytics, Tag Manager, and Arena `/rpc` scripts are
+blocked; other resource types are not blocked. Disable these separately with `arena config set reduce_visual_effects false`
+and `arena config set block_analytics_scripts false` if the site misbehaves. Request routing may disable the browser
+cache; service workers and content-security policies can affect these optimizations.
+
+Conversation URLs and workspace downloads must use the configured HTTP(S) `--base-url` origin without embedded
+credentials, a path, query or fragment. Cross-origin workspace and initial navigation redirects are blocked before the
+destination request. The active page is checked before typing or sending, but later page-initiated navigation is not
+intercepted. Job cancellation verifies the worker and reports `cancelled: false` if it cannot be verified.
+
 ## Typical Usage
 
 ```bash

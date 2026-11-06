@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from .. import __version__
-from ..engine import parse_cookie_file, summarize_cookies
+from ..engine import parse_cookie_file, summarize_cookies, mask_proxy
 
 
 def _check_playwright() -> tuple[bool, str, str]:
@@ -52,7 +52,7 @@ def _check_network(base_url: str, proxy: str = "") -> tuple[bool, str, str]:
     except urllib.error.HTTPError as exc:
         return True, f"HTTP {exc.code} (reachable)", ""
     except Exception as exc:  # noqa: BLE001
-        return False, f"unreachable: {str(exc)[:60]}", "Check the network / proxy; corporate networks may block HEAD requests"
+        return False, "unreachable (network or proxy error)", "Check the network / proxy; corporate networks may block HEAD requests"
 
 
 def _check_session(ctx) -> tuple[bool, str, str]:
@@ -97,7 +97,7 @@ def run_doctor(ctx, args) -> int:
         ("config", *_check_config(ctx)),
         ("session", *_check_session(ctx)),
         ("profile", True, ctx.paths.profile, ""),
-        ("proxy", True, ctx.get("proxy") or "(not configured; direct connection)", ""),
+        ("proxy", True, mask_proxy(str(ctx.get("proxy") or "")) or "(not configured; direct connection)", ""),
         ("hermes skill", *_check_skill(ctx)),
     ]
     checks = [{"name": n, "ok": ok, "detail": d, "fix": h} for n, ok, d, h in rows]

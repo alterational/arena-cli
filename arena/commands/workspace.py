@@ -144,12 +144,8 @@ def run_download(ctx, args) -> int:
             f"overwrite local file {out}",
             f"To confirm the overwrite: arena workspace download … --out {out} --yes; or use a different --out",
         )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(got["bytes"])
-    try:
-        out.chmod(0o600)
-    except OSError:
-        pass
+    from ..storage import write_private_bytes
+    write_private_bytes(out, got["bytes"])
 
     data = {
         "chat_id": got["chat_id"],

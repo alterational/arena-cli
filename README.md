@@ -14,6 +14,7 @@ This project provides the missing command-line layer: no API key is required bec
 
 - **One prompt, one answer**: `arena ask` submits your prompt and automatically waits for the Agent to finish. stdout contains only the answer, so it can be redirected or piped directly.
 - **Multi-turn and background execution**: use `--chat last` to continue the previous conversation; use `--no-wait` to run in the background and `arena jobs result` to retrieve the result.
+- **Interactive chat tabs**: run `arena tui` for a full-screen terminal interface with temporary tabs and streaming responses.
 - **Access generated files**: use `show` to read `.md`/`.csv` files from the Agent workspace and `download` to save them.
 - **Designed for scripts and agents**: `--json` provides a consistent envelope, failures include next-step hints, exit codes are machine-readable, and `arena schema` supports command introspection.
 
@@ -48,6 +49,7 @@ Use `--profile` to isolate multiple accounts: `arena profile create work --from 
 | Command | Purpose |
 | --- | --- |
 | `arena ask "question"` | Ask a question and print the answer (`--json` / `--stream` / `--no-wait` / `--chat last`) |
+| `arena tui` | Interactive full-screen chat with temporary tabs |
 | `arena check` | Check authentication (`--probe` sends a real verification message) |
 | `arena status` | Offline overview of sessions, configuration, and background jobs without opening a browser |
 | `arena cookies import\|export\|show` | Import/export cookies or list them (names only) |

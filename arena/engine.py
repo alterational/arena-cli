@@ -70,6 +70,8 @@ DEFAULT_DIR = HOME / ".arena-cli"
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": "https://arena.ai",
     "proxy": "",                 # http://host:port / socks5://host:port / user:pass also works
+    "block_analytics_scripts": True,
+    "reduce_visual_effects": True,
     "agent_path": "/agent",
     # Input box (composer). arena.ai currently uses a Tiptap/ProseMirror editor
     "editor_selectors": [
@@ -228,13 +230,16 @@ def parse_proxy(url: Optional[str]) -> Optional[dict[str, Any]]:
         url = "http://" + url
     from urllib.parse import unquote, urlparse
 
-    u = urlparse(url)
-    if not u.hostname:
-        raise SkillError("BAD_INPUT", f"Unrecognized proxy address: {url}")
-    scheme = (u.scheme or "http").lower()
-    if scheme not in ("http", "https", "socks5", "socks4"):
-        raise SkillError("BAD_INPUT", f"Unsupported proxy protocol: {scheme} (supports http/https/socks5)")
-    port = u.port or (1080 if scheme.startswith("socks") else 8080)
+    try:
+        u = urlparse(url)
+        if not u.hostname:
+            raise ValueError
+        scheme = (u.scheme or "http").lower()
+        if scheme not in ("http", "https", "socks5", "socks4"):
+            raise SkillError("BAD_INPUT", "Unsupported proxy protocol (use http, https, socks5 or socks4)")
+        port = u.port or (1080 if scheme.startswith("socks") else 8080)
+    except ValueError:
+        raise SkillError("BAD_INPUT", "Unrecognized proxy address") from None
     proxy: dict[str, Any] = {"server": f"{scheme}://{u.hostname}:{port}"}
     if u.username:
         proxy["username"] = unquote(u.username)
@@ -244,18 +249,21 @@ def parse_proxy(url: Optional[str]) -> Optional[dict[str, Any]]:
 
 
 def mask_proxy(url: Optional[str]) -> str:
-    """Mask the proxy password in logs/output."""
-    url = (url or "").strip()
-    if not url or "@" not in url:
-        return url
+    """Mask proxy credentials and query parameters in logs and output."""
     from urllib.parse import urlsplit, urlunsplit
-
+    url = (url or "").strip()
+    if not url:
+        return ""
     try:
-        u = urlsplit(url if "://" in url else "http://" + url)
-        netloc = f"{u.username}:***@{u.hostname}" + (f":{u.port}" if u.port else "")
-        return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
+        has_scheme = "://" in url
+        u = urlsplit(url if has_scheme else "http://" + url)
+        if not u.hostname:
+            return "[redacted proxy]"
+        host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+        netloc = ("***@" if "@" in u.netloc else "") + host + (f":{u.port}" if u.port else "")
+        return urlunsplit((u.scheme, netloc, "", "", "")) if has_scheme else netloc
     except ValueError:
-        return url
+        return "[redacted proxy]"
 
 
 def jitter(a: float = 0.05, b: float = 0.2) -> None:
@@ -347,7 +355,7 @@ class Session:
                 "DEPENDENCY_MISSING",
                 "Playwright is missing: pip install playwright && python3 -m playwright install chromium",
             )
-        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self._pw = sync_playwright().start()
         launch_args = [
@@ -372,6 +380,7 @@ class Session:
             ignore_default_args=["--enable-automation"],
         )
         self.ctx.set_default_timeout(15_000)
+        self._configure_performance()
         self._restore_state()
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         return self
@@ -388,6 +397,47 @@ class Session:
                 if self._pw:
                     self._pw.stop()
 
+    def _configure_performance(self) -> None:
+        """Limit cosmetic work and optional tracking scripts on Arena pages only."""
+        assert self.ctx is not None
+        if self.cfg.get("reduce_visual_effects", True):
+            self.ctx.add_init_script(script="""(() => {
+                if (!(location.hostname === 'arena.ai' || location.hostname.endsWith('.arena.ai'))) return;
+                const apply = () => { if (!document.head || document.getElementById('arena-cli-reduced-effects')) return;
+                  const style = document.createElement('style'); style.id = 'arena-cli-reduced-effects';
+                  style.textContent = '*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; backdrop-filter: none !important; }';
+                  document.head.appendChild(style); };
+                if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, {once:true}); else apply();
+            })();""")
+        if self.cfg.get("block_analytics_scripts", True):
+            self.ctx.add_init_script(script="""(() => {
+                if (!(location.hostname === 'arena.ai' || location.hostname.endsWith('.arena.ai'))) return;
+                window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function() {};
+                window.ga = window.ga || function() {}; window.fbq = window.fbq || function() {};
+                window.analytics = window.analytics || {track: function() {}, page: function() {}, identify: function() {}};
+            })();""")
+            def route_script(route: Any) -> None:
+                from urllib.parse import urlsplit
+                request = route.request
+                try:
+                    source = (urlsplit(request.frame.url).hostname or "").lower()
+                except PWError:
+                    route.fallback()
+                    return
+                if source != "arena.ai" and not source.endswith(".arena.ai"):
+                    route.fallback()
+                    return
+                u = urlsplit(request.url)
+                host = (u.hostname or "").lower()
+                arena = host == "arena.ai" or host.endswith(".arena.ai")
+                tracking = (host == "google-analytics.com" or host.endswith(".google-analytics.com") or
+                            host in ("analytics.google.com", "www.googletagmanager.com", "www.googleadservices.com", "stats.g.doubleclick.net"))
+                if request.resource_type == "script" and (tracking or (arena and u.path.startswith("/rpc"))):
+                    route.abort()
+                else:
+                    route.fallback()
+            self.ctx.route("**/*", route_script)
+
     # ---- cookies / localStorage persistence ---------------------------------------
     def _restore_state(self) -> None:
         """Inject the cookies + localStorage from state.json into a new browser context."""
@@ -399,24 +449,31 @@ class Session:
             log(f"State file is corrupted; ignored: {self.state_file}")
             return
 
-        cookies = state.get("cookies") or []
-        if not cookies and isinstance(state, list):  # Compatible with the EditThisCookie export format
-            cookies = state
+        from urllib.parse import urlsplit
+        from .url_safety import origin
+        host = (urlsplit(self.cfg["base_url"]).hostname or "").lower()
+        cookies = state if isinstance(state, list) else state.get("cookies") or []
+        cookies = [c for c in cookies if isinstance(c, dict) and isinstance(c.get("domain"), str)
+                   and (host == c["domain"].lstrip(".").lower() or host.endswith("." + c["domain"].lstrip(".").lower()))]
         if cookies:
             try:
-                self.ctx.add_cookies(cookies)  # type: ignore[union-attr]
+                self.ctx.add_cookies(cookies)
                 log(f"Injected {len(cookies)} cookies")
-            except PWError as exc:
-                log(f"Failed to inject cookies: {exc}")
-
-        origins = state.get("origins") or []
-        if origins:
-            blob = {o["origin"]: {kv["name"]: kv["value"] for kv in o.get("localStorage", [])}
-                    for o in origins}
+            except PWError:
+                log("Failed to inject cookies; re-import a valid cookies file")
+        origins = state.get("origins") or [] if isinstance(state, dict) else []
+        allowed = []
+        for item in origins:
+            try:
+                if origin(item["origin"]) == origin(self.cfg["base_url"]):
+                    allowed.append(item)
+            except (ValueError, KeyError, TypeError):
+                continue
+        if allowed:
+            blob = {o["origin"]: {kv["name"]: kv["value"] for kv in o.get("localStorage", [])} for o in allowed}
             js = "(() => { const S = %s; const o = S[location.origin]; if (o) { for (const k in o) "
             js += "{ try { localStorage.setItem(k, o[k]) } catch (e) {} } } })();"
-            self.ctx.add_init_script(script=js % json.dumps(blob))  # type: ignore[union-attr]
-            log(f"Injected localStorage for {len(origins)} origins")
+            self.ctx.add_init_script(script=js % json.dumps(blob))
 
     def save_state(self) -> None:
         """Write the current cookies (+ localStorage) back to state.json — this is what \"remembers the cookies\"."""
@@ -427,30 +484,73 @@ class Session:
         except PWError as exc:
             log(f"Failed to save session: {exc}")
             return
-        self.state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-        try:
-            os.chmod(self.state_file, 0o600)  # The session file is equivalent to a password; tighten permissions
-        except OSError:
-            pass
+        from .storage import write_private_text
+        write_private_text(self.state_file, json.dumps(state, ensure_ascii=False, indent=2))
         log(f"Session saved: {self.state_file} ({len(state.get('cookies', []))} cookies)")
 
     # ---- Page navigation ------------------------------------------------------------
+    def _same_origin_url(self, target: str) -> str:
+        from .url_safety import same_origin_url
+        try:
+            return same_origin_url(self.cfg["base_url"], target)
+        except ValueError:
+            raise SkillError("BAD_INPUT", "URL must use the configured site's origin") from None
+
+    def _check_page_origin(self) -> None:
+        assert self.page is not None
+        self._same_origin_url(self.page.url)
+
+    def _navigate(self, url: str) -> None:
+        """Block cross-origin top-level redirects before the destination request."""
+        assert self.page is not None and self.ctx is not None
+        cdp = None
+        blocked = False
+        try:
+            cdp = self.ctx.new_cdp_session(self.page)
+            main_frame = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
+            def on_request(event: dict[str, Any]) -> None:
+                nonlocal blocked
+                try:
+                    if event.get("frameId") == main_frame:
+                        self._same_origin_url(event["request"]["url"])
+                except SkillError:
+                    blocked = True
+                    cdp.send("Fetch.failRequest", {"requestId": event["requestId"], "errorReason": "BlockedByClient"})
+                else:
+                    cdp.send("Fetch.continueRequest", {"requestId": event["requestId"]})
+            cdp.on("Fetch.requestPaused", on_request)
+            cdp.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}]})
+            try:
+                self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            except PWTimeout:
+                log("Page load timed out; checking whether the page is usable")
+            except PWError as exc:
+                if blocked:
+                    raise SkillError("BAD_INPUT", "The site redirected outside the configured origin") from None
+                raise SkillError("BROWSER_ERROR", f"Cannot open the configured site: {str(exc).splitlines()[0]}") from None
+            if blocked:
+                raise SkillError("BAD_INPUT", "The site redirected outside the configured origin")
+            self._check_page_origin()
+        except PWError as exc:
+            raise SkillError("BROWSER_ERROR", f"Cannot verify navigation origin: {str(exc).splitlines()[0]}") from None
+        finally:
+            if cdp is not None:
+                try:
+                    cdp.detach()
+                except PWError:
+                    pass
+
     def open_agent(self) -> Page:
         assert self.page is not None
-        url = self.cfg["base_url"].rstrip("/") + self.cfg["agent_path"]
+        url = self._same_origin_url(self.cfg["base_url"].rstrip("/") + self.cfg["agent_path"])
         log(f"Opening {url}")
-        try:
-            self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        except PWTimeout:
-            log("Page load timed out; continuing anyway (the SPA may already be usable)")
-        except PWError as exc:
-            raise SkillError("BROWSER_ERROR", f"Cannot open {url}: {str(exc).splitlines()[0]}") from None
+        self._navigate(url)
         self.wait_editor()
         self.handle_terms()
         self.settle()
         return self.page
 
-    def settle(self, timeout_ms: int = 20_000) -> None:
+    def settle(self, timeout_ms: int = 2_000) -> None:
         """Wait for the SPA to fully hydrate.
 
         Pitfall: after `domcontentloaded` the editor is already in the DOM, but React has not attached its event handlers yet;
@@ -519,13 +619,9 @@ class Session:
             return self.open_agent()
         else:
             url = f"{self.cfg['base_url'].rstrip('/')}{self.cfg['agent_path']}/{chat}"
+        url = self._same_origin_url(url)
         log(f"Opening conversation {url}")
-        try:
-            self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        except PWTimeout:
-            log("Page load timed out; continuing anyway")
-        except PWError as exc:
-            raise SkillError("BROWSER_ERROR", f"Cannot open {url}: {str(exc).splitlines()[0]}") from None
+        self._navigate(url)
         if require_editor:
             self.wait_editor()
         else:
@@ -554,6 +650,7 @@ class Session:
         deadline = started + timeout_s
         saw_challenge = False
         while time.time() < deadline:
+            self._check_page_origin()
             loc = first_visible(self.page, self.cfg["editor_selectors"])
             if loc is not None:
                 return loc
@@ -645,7 +742,8 @@ class Session:
             self.open_chat(chat, require_editor=False)
         else:
             self.open_agent()
-        self.settle()
+        if chat:
+            self.settle()
         deadline = time.time() + 25
         while time.time() < deadline:
             if self.workspace_raw().get("found"):
@@ -720,8 +818,18 @@ class Session:
     def workspace_bytes(self, href: str) -> tuple[bytes, dict[str, str]]:
         """Fetch the files via the browser context (carrying the login session)."""
         assert self.ctx is not None
-        url = href if href.startswith("http") else self.cfg["base_url"].rstrip("/") + href
-        resp = self.ctx.request.get(url, timeout=120_000)
+        from urllib.parse import urljoin
+        url = self._same_origin_url(href)
+        for _ in range(6):
+            resp = self.ctx.request.get(url, timeout=120_000, max_redirects=0)
+            if resp.status not in (301, 302, 303, 307, 308):
+                break
+            location = resp.headers.get("location")
+            if not location:
+                raise SkillError("SEND_FAILED", "Download redirect has no destination")
+            url = self._same_origin_url(urljoin(url, location))
+        else:
+            raise SkillError("SEND_FAILED", "Too many download redirects")
         if not resp.ok:
             raise SkillError(
                 "SEND_FAILED" if resp.status >= 500 else "NOT_FOUND",
@@ -855,6 +963,7 @@ class Session:
         assert self.page is not None
         page = self.page
         editor = self.wait_editor()
+        self._check_page_origin()
         editor.click()
         jitter()
 
@@ -900,18 +1009,23 @@ class Session:
         """Click the send button; fall back to Enter if the button is unavailable."""
         assert self.page is not None
         page = self.page
+        self._check_page_origin()
         btn = first_visible(page, self.cfg["send_selectors"])
         if btn is not None:
             try:
                 if btn.is_enabled():
-                    btn.click()
+                    btn.click(timeout=5_000)
                     log("Clicked send")
                     return
             except PWError:
-                pass
+                raise SkillError("SEND_FAILED", "Could not confirm send. Check the conversation before retrying") from None
+            raise SkillError("SEND_FAILED", "Send button is disabled. Check the conversation before retrying")
         editor = self.wait_editor(5)
-        editor.click()
-        page.keyboard.press("Enter")
+        try:
+            editor.click(timeout=5_000)
+            page.keyboard.press("Enter")
+        except PWError:
+            raise SkillError("SEND_FAILED", "Could not confirm send. Check the conversation before retrying") from None
         log("Sent with Enter")
 
     # ---- State detection -----------------------------------------------------------
@@ -971,13 +1085,32 @@ class Session:
         return False
 
     # ---- Answer extraction -----------------------------------------------------------
-    def extract_answer(self, prompt: str, baseline: str) -> str:
+    def assistant_counts(self) -> dict[str, int]:
+        assert self.page is not None
+        counts = {}
+        for sel in self.cfg["assistant_selectors"]:
+            try:
+                counts[sel] = self.page.locator(sel).count()
+            except PWError:
+                counts[sel] = 0
+        return counts
+
+    def extract_answer(self, prompt: str, baseline: str, assistant_baseline: Optional[dict[str, int]] = None) -> str:
         """Three-tier strategy: structured selectors -> text diff -> full-page text."""
         assert self.page is not None
         page = self.page
 
         # A. Structured: take the last visible assistant container
-        cands = visible_of(page, self.cfg["assistant_selectors"])
+        cands = []
+        for sel in self.cfg["assistant_selectors"]:
+            try:
+                loc = page.locator(sel)
+                for i in range((assistant_baseline or {}).get(sel, 0), loc.count()):
+                    item = loc.nth(i)
+                    if item.is_visible():
+                        cands.append(item)
+            except PWError:
+                continue
         if cands:
             for cand in reversed(cands):          # Search from the last entry backward, skipping ones that are actually user messages
                 try:
@@ -1035,6 +1168,7 @@ class Session:
         else:
             self.open_agent()
         baseline = body_text(page)
+        assistant_baseline = self.assistant_counts()
         editor = self.wait_editor()
         self.fill_editor(prompt)
         before_msgs = self.message_count()
@@ -1063,33 +1197,19 @@ class Session:
                         "LOGIN_REQUIRED",
                         "Sending was blocked by the login dialog: the current session is not logged in or has expired; run `login` or import cookies first",
                     )
-                try:
-                    if norm(editor.inner_text()) == "":
-                        return True
-                except PWError:
-                    return True
                 if self.message_count() > before_msgs:
                     return True
+                try:
+                    text = editor.evaluate_all("els => els.length ? (els[els.length-1].tagName === 'TEXTAREA' ? els[els.length-1].value : els[els.length-1].innerText) : null")
+                    if text is not None and norm(text) == "":
+                        return True
+                except PWError:
+                    pass
                 page.wait_for_timeout(400)
             return False
 
-        sent = wait_sent(20)
-        if not sent:
-            # If send is clicked before the SPA finishes hydrating, the click is swallowed: refill and send once more (the page is live by now)
-            log("Send seems to have had no effect; retrying once…")
-            try:
-                if norm(editor.inner_text()) == "":
-                    self.fill_editor(prompt)
-            except PWError:
-                pass
-            self.submit()
-            sent = wait_sent(20)
-        if not sent:
-            raise SkillError(
-                "SEND_FAILED",
-                "The message was not submitted (the input box still has content and no new message appeared); "
-                "the page may still be loading or may have changed; try observing with `--headed`, or retry later",
-            )
+        if not wait_sent(20):
+            raise SkillError("SEND_FAILED", "Could not confirm that the message was submitted. Check the conversation before retrying")
 
         log("Message submitted; waiting for the Agent to run…")
 
@@ -1109,7 +1229,7 @@ class Session:
                 self.raise_http_failure(http_failures or [(429, "create-chat")])
                 raise SkillError("SEND_FAILED",
                                  "The message was retracted by the page after sending (server rejection); try again later")
-            answer = self.extract_answer(prompt, baseline)
+            answer = self.extract_answer(prompt, baseline, assistant_baseline)
             if answer != last_text:
                 last_text, last_change = answer, time.time()
                 if on_update is not None and answer:
@@ -1467,9 +1587,8 @@ def cmd_login(session: Session, email: Optional[str], code: Optional[str],
 def cmd_export(session: Session, out: Path) -> dict[str, Any]:
     assert session.ctx is not None
     state = session.ctx.storage_state()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.chmod(out, 0o600)
+    from .storage import write_private_text
+    write_private_text(out, json.dumps(state, ensure_ascii=False, indent=2))
     return {"ok": True, "exported": str(out), "cookies": len(state.get("cookies", []))}
 
 
@@ -1596,12 +1715,8 @@ def cmd_import(path: Path, state_file: Path, cfg: Optional[dict[str, Any]] = Non
     """Turn an uploaded cookies file into a usable session snapshot."""
     cookies, meta = parse_cookie_file(path)
     state = {"cookies": cookies, "origins": meta.get("origins") or []}
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    try:
-        os.chmod(state_file, 0o600)
-    except OSError:
-        pass
+    from .storage import write_private_text
+    write_private_text(state_file, json.dumps(state, ensure_ascii=False, indent=2))
 
     health = summarize_cookies(cookies, cfg or DEFAULT_CONFIG)
     result: dict[str, Any] = {

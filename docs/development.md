@@ -87,3 +87,13 @@ git commit -am "feat: …, vX.Y.Z" && git push origin main
 
 Breaking changes (skill name, data directory, exit code meanings) must include `BREAKING CHANGE` in the commit message,
 and an upgrade section must be added to [migration.md](migration.md).
+
+## Focused regression tests
+
+```bash
+python3 -m unittest discover -s tests -p 'test_recovery.py' -v
+python3 tests/run_tui_tests.py
+python3 tests/run_browser_regressions.py
+```
+
+The terminal integration test uses a local mock server and a pseudo-terminal; no real credentials are used.

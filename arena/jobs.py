@@ -27,7 +27,7 @@ STALE_SECONDS = 2.0   # Allow a buffer even after the pid is gone, to avoid misj
 # --------------------------------------------------------------------------- Storage
 def jobs_root(home: Path) -> Path:
     root = home / "jobs"
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
     return root
 
 
@@ -36,9 +36,8 @@ def _now() -> str:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    from .storage import write_private_text
+    write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _read_json(path: Path) -> Optional[dict[str, Any]]:
@@ -122,24 +121,42 @@ def logs(job_dir: Path, tail: int = 40) -> str:
     return "\n".join(lines[-tail:])
 
 
+def _is_job_worker(pid: int, job_dir: Path) -> bool:
+    expected = ["-m", "arena.jobs", "--run", str(job_dir)]
+    try:
+        if Path("/proc").is_dir():
+            args = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", errors="replace").rstrip("\0").split("\0")
+            return len(args) >= 5 and args[-4:] == expected
+        result = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=2, check=False)
+        return result.returncode == 0 and result.stdout.strip().endswith(" ".join(expected))
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def cancel(job_dir: Path) -> bool:
     job = _read_json(job_dir / "job.json") or {}
     pid = job.get("pid")
-    killed = False
-    if pid_alive(pid):
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)   # Also terminate the browser process along with it
-            killed = True
-        except OSError:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                killed = True
-            except OSError:
-                pass
-    job["status"] = "cancelled"
-    job["finished_at"] = _now()
+    if (job.get("status") not in ("queued", "running") or (job_dir / "result.json").exists()
+            or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0):
+        return False
+    fd = None
+    try:
+        if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
+            fd = os.pidfd_open(pid)
+        if not _is_job_worker(pid, job_dir):
+            return False
+        if fd is not None:
+            signal.pidfd_send_signal(fd, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    finally:
+        if fd is not None:
+            os.close(fd)
+    job.update(status="cancelled", finished_at=_now())
     _write_json(job_dir / "job.json", job)
-    return killed
+    return True
 
 
 # --------------------------------------------------------------------------- Create
@@ -147,7 +164,7 @@ def create(home: Path, prompt: str, *, profile: str, state_file: Path, profile_d
            options: dict[str, Any]) -> dict[str, Any]:
     job_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.urandom(2).hex()}"
     job_dir = jobs_root(home) / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    job_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     job = {
         "job_id": job_id,
@@ -169,12 +186,13 @@ def create(home: Path, prompt: str, *, profile: str, state_file: Path, profile_d
     env["PYTHONPATH"] = repo_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     env.setdefault("PYTHONIOENCODING", "utf-8")
 
-    log = open(job_dir / "run.log", "ab", buffering=0)   # noqa: SIM115 — handed over to the child process
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "arena.jobs", "--run", str(job_dir)],
-        stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-        start_new_session=True, env=env, cwd=repo_root,
-    )
+    fd = os.open(job_dir / "run.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "ab", buffering=0) as log:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "arena.jobs", "--run", str(job_dir)],
+            stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            start_new_session=True, env=env, cwd=repo_root,
+        )
     job["pid"] = proc.pid
     _write_json(job_dir / "job.json", job)
     return {"job_id": job_id, "status": "running", "pid": proc.pid,
@@ -191,12 +209,17 @@ def run_worker(job_dir: Path) -> int:
     from .engine import Session, SkillError, load_config
 
     opts = job.get("options") or {}
-    cfg = load_config(None, {
+    cfg = opts.get("engine_config") or load_config(None, {
         "base_url": opts.get("base_url"),
         "wait_timeout": opts.get("timeout"),
         "stable_seconds": opts.get("stable"),
     })
     started = time.time()
+    class JobCancelled(BaseException):
+        pass
+    def stop_worker(_signum, _frame):
+        raise JobCancelled()
+    old_handler = signal.signal(signal.SIGTERM, stop_worker)
     try:
         progress = {"logged": 0}
 
@@ -217,6 +240,8 @@ def run_worker(job_dir: Path) -> int:
         result["elapsed_seconds"] = round(time.time() - started, 1)
         _write_json(job_dir / "result.json", result)
         job.update(status="done", finished_at=_now(), elapsed_seconds=result["elapsed_seconds"])
+    except JobCancelled:
+        job.update(status="cancelled", finished_at=_now(), elapsed_seconds=round(time.time() - started, 1))
     except SkillError as exc:
         _write_json(job_dir / "result.json",
                     {"ok": False, "code": exc.code, "error": exc.message, "prompt": job.get("prompt")})
@@ -227,6 +252,8 @@ def run_worker(job_dir: Path) -> int:
                     {"ok": False, "code": "INTERNAL", "error": f"{type(exc).__name__}: {exc}"})
         job.update(status="failed", finished_at=_now(),
                    elapsed_seconds=round(time.time() - started, 1))
+    finally:
+        signal.signal(signal.SIGTERM, old_handler)
     _write_json(job_dir / "job.json", job)
     return 0
 

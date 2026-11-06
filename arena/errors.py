@@ -11,7 +11,7 @@ CODE_MAP: dict[str, tuple[str, str, int, str]] = {
                        "arena cookies import <cookies file>, or arena login --email your@email.com --headed"),
     "LOGIN_FAILED": ("auth", "login_failed", 2, "Use a real email domain, or use a cookies file directly"),
     "LOGIN_TIMEOUT": ("auth", "login_timeout", 2, "Increase --wait, or use a cookies file directly"),
-    "SEND_FAILED": ("runtime", "send_failed", 3, "Retry once; if it still fails, use --headed to observe the page"),
+    "SEND_FAILED": ("runtime", "send_failed", 3, "Check the conversation before retrying; use --headed to inspect the page"),
     "TIMEOUT": ("timeout", "agent_timeout", 4, "Add --timeout; or run in the background with arena jobs"),
     "UI_CHANGED": ("runtime", "ui_changed", 5,
                    "Update the selectors with arena config set selectors '{...}' (see references/troubleshooting.md)"),

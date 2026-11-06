@@ -37,7 +37,7 @@ the hard limit is `wait_timeout` (default 900s). Sleeping for a fixed time alone
 | --- | --- | --- |
 | `LOGIN_REQUIRED` | 2 | Import/update cookies, or run `login` |
 | `LOGIN_FAILED` / `LOGIN_TIMEOUT` | 2 | Use a real email domain, increase `--wait`, or use cookies directly |
-| `SEND_FAILED` | 3 | Retry once; if it still fails, use `--headed` to inspect the page |
+| `SEND_FAILED` | 3 | Check the conversation before retrying; use `--headed` to inspect the page |
 | `TIMEOUT` | 4 | Increase `--timeout`, or give the `url` to the user |
 | `UI_CHANGED` | 5 | Update the selectors in this document / the configuration |
 | `RATE_LIMITED` | 7 | `POST /nextjs-api/stream/create-chat` returned **429**: wait a few minutes and retry, or switch cookies / use a different `--profile` |

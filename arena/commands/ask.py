@@ -147,7 +147,7 @@ def run(ctx, args) -> int:
         job = jobs.create(
             ctx.paths.home, prompt, profile=ctx.paths.profile,
             state_file=ctx.paths.state_file, profile_dir=ctx.paths.profile_dir,
-            options={"base_url": ctx.get("base_url"), "timeout": _timeout(ctx, args),
+            options={"engine_config": ctx.engine_cfg, "base_url": ctx.get("base_url"), "timeout": _timeout(ctx, args),
                      "stable": _stable(ctx, args), "chat": chat,
                      "headed": bool(getattr(args, "headed", False))},
         )

@@ -75,5 +75,7 @@
   "wait_timeout": 900,
   "stable_seconds": 2.5,
   "poll_seconds": 1.0,
-  "login_timeout": 240
+  "login_timeout": 240,
+  "block_analytics_scripts": true,
+  "reduce_visual_effects": true
 }
